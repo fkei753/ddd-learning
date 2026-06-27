@@ -1,0 +1,14 @@
+{
+  "name": "ddd-learning",
+  "version": "1.0.0",
+  "description": "DDD + クリーンアーキテクチャ 学習サンプル",
+  "scripts": {
+    "demo": "ts-node src/demo.ts",
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0",
+    "@types/node": "^20.0.0"
+  }
+}
