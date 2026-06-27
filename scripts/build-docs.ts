@@ -134,7 +134,9 @@ async function build(): Promise<void> {
     const htmlPath = path.join(outDir, file.replace('.md', '.html'));
 
     const markdown = fs.readFileSync(mdPath, 'utf-8');
-    const body     = await marked(markdown);
+    let body       = await marked(markdown);
+    // Markdown 内の相対 .md リンクを .html に変換
+    body = body.replace(/href="\.?\/?(\d{2}_[^"]+)\.md"/g, 'href="$1.html"');
 
     // <h1> からページタイトルを抽出
     const titleMatch = markdown.match(/^#\s+(.+)/m);
