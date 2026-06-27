@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>クリーンアーキテクチャ（Clean Architecture） — DDD 学習ガイド</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="sidebar-header">
+        <h2>DDD 学習ガイド</h2>
+        <p>TypeScript で学ぶ</p>
+      </div>
+      <ul>
+        <li><a href="01_what_is_ddd.html">① DDDとは</a></li>
+        <li><a href="02_ubiquitous_language.html">② ユビキタス言語</a></li>
+        <li><a href="03_strategic_design.html">③ 戦略的設計</a></li>
+        <li><a href="04_tactical_design.html">④ 戦術的設計</a></li>
+        <li class="active"><a href="05_clean_architecture.html">⑤ クリーンアーキテクチャ</a></li>
+      </ul>
+    </nav>
+    <main class="content">
+      <article>
+        <h1>クリーンアーキテクチャ（Clean Architecture）</h1>
+<h2>1. クリーンアーキテクチャとは</h2>
+<p>Robert C. Martin（Uncle Bob）が2012年に提唱した <strong>アーキテクチャパターン</strong> です。
+「ヘキサゴナルアーキテクチャ（Ports &amp; Adapters）」「オニオンアーキテクチャ」とも
+思想を共有します。</p>
+<blockquote>
+<p><strong>核心原則：ビジネスロジック（ドメイン）は外部の詳細に依存してはならない。</strong></p>
+</blockquote>
+<p>「外部の詳細」とは、データベース・Web フレームワーク・外部 API など、
+<strong>ビジネスの本質ではない部分</strong> のことです。これらは「配管（Plumbing）」であり、
+ビジネスロジックに影響を与えるべきではありません。</p>
+<h3>なぜこれが重要か</h3>
+<pre><code class="hljs language-plaintext">【依存が逆転している悪い例】
+
+// ドメインオブジェクトが DB に依存している
+class Order {
+  async cancel(): Promise&lt;void&gt; {
+    // ← DB 操作がドメインロジックに混入している！
+    await db.query(&#x27;UPDATE orders SET status = ? WHERE id = ?&#x27;,
+      [&#x27;CANCELLED&#x27;, this._id]);
+
+    // ← さらにメール送信まで！
+    await emailService.send(this._customerId, &#x27;注文をキャンセルしました&#x27;);
+  }
+}</code></pre><p>このコードの問題点：</p>
+<ul>
+<li>DB の種類が変わると <code>Order</code> クラスを修正しなければならない</li>
+<li><code>Order.cancel()</code> の単体テストに DB が必要になる</li>
+<li>ビジネスロジック（キャンセル可能かのチェック）と技術的詳細が混在している</li>
+</ul>
+<hr>
+<h2>2. 同心円の構造</h2>
+<p>クリーンアーキテクチャは <strong>同心円（レイヤー）</strong> で表現されます。</p>
+<pre><code class="hljs language-plaintext">          ┌─────────────────────────────────────────┐
+          │      Frameworks &amp; Drivers（外側）          │
+          │  Web, DB, UI, Redis, 外部 API             │
+          │  ┌───────────────────────────────────┐   │
+          │  │   Interface Adapters               │   │
+          │  │ Controllers, Presenters,           │   │
+          │  │ Repository 実装                    │   │
+          │  │  ┌─────────────────────────────┐  │   │
+          │  │  │  Application Business Rules  │  │   │
+          │  │  │  Use Cases（ユースケース）     │  │   │
+          │  │  │  ┌───────────────────────┐  │  │   │
+          │  │  │  │ Enterprise Business   │  │  │   │
+          │  │  │  │ Rules（ドメイン）       │  │  │   │
+          │  │  │  │ Entity, VO, Aggregate │  │  │   │
+          │  │  │  └───────────────────────┘  │  │   │
+          │  │  └─────────────────────────────┘  │   │
+          │  └───────────────────────────────────┘   │
+          └─────────────────────────────────────────┘
+                              内側</code></pre><h3>依存関係のルール（The Dependency Rule）</h3>
+<blockquote>
+<p><strong>依存は必ず外側から内側へ向かう。内側のコードは外側を知ってはならない。</strong></p>
+</blockquote>
+<pre><code class="hljs language-plaintext">具体例で理解する：
+
+Infrastructure（外側）
+  → Application（内側）：OK（InMemoryOrderRepository は OrderRepository を知っている）
+
+Domain（内側）
+  → Infrastructure（外側）：NG（Order.ts に import from &#x27;sequelize&#x27; は禁止）</code></pre><p>この原則により、<strong>内側のコードは変わりにくく</strong>、<strong>外側だけを差し替えられる</strong> 設計になります。</p>
+<hr>
+<h2>3. 各レイヤーの役割と責任</h2>
+<h3>🔵 ドメイン層（Domain Layer）― 最内部・最重要</h3>
+<pre><code class="hljs language-plaintext">役割：ビジネスのルールと概念を純粋に表現する
+依存：外部への依存ゼロ（import できるのは他のドメインクラスのみ）
+置くもの：Entity, Value Object, Aggregate, Domain Service,
+          Repository Interface, Domain Event</code></pre><pre><code class="hljs language-typescript"><span class="hljs-comment">// src/domain/order/Order.ts</span>
+<span class="hljs-comment">// ← ここに import から DB や HTTP の痕跡が一切ない</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">AggregateRoot</span>, <span class="hljs-title class_">DomainEvent</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../shared/DomainEvent&#x27;</span>; <span class="hljs-comment">// ドメイン内</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Money</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../shared/Money&#x27;</span>;                             <span class="hljs-comment">// ドメイン内</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">CustomerId</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;../customer/CustomerId&#x27;</span>;                 <span class="hljs-comment">// ドメイン内</span>
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Order</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_ inherited__">AggregateRoot</span> {
+  <span class="hljs-title function_">cancel</span>(): <span class="hljs-built_in">void</span> {
+    <span class="hljs-keyword">if</span> (!<span class="hljs-variable constant_">CANCELLABLE_STATUSES</span>.<span class="hljs-title function_">includes</span>(<span class="hljs-variable language_">this</span>.<span class="hljs-property">_status</span>)) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`この注文はキャンセルできません: <span class="hljs-subst">${<span class="hljs-variable language_">this</span>._status}</span>`</span>);
+    }
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">_status</span> = <span class="hljs-title class_">OrderStatus</span>.<span class="hljs-property">CANCELLED</span>;
+    <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">addDomainEvent</span>(<span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderCancelled</span>(<span class="hljs-variable language_">this</span>.<span class="hljs-property">_id</span>)); <span class="hljs-comment">// イベントを記録するだけ</span>
+    <span class="hljs-comment">// ← DB も HTTP も呼ばない！ビジネスロジックだけ！</span>
+  }
+}</code></pre><p><strong>テストのしやすさ：</strong>
+ドメイン層は外部依存がないため、DB なしでテストできます。</p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// ドメイン層のテスト（DBモックが不要）</span>
+<span class="hljs-title function_">describe</span>(<span class="hljs-string">&#x27;Order.cancel()&#x27;</span>, <span class="hljs-function">() =&gt;</span> {
+  <span class="hljs-title function_">it</span>(<span class="hljs-string">&#x27;SHIPPED 状態の注文はキャンセルできない&#x27;</span>, <span class="hljs-function">() =&gt;</span> {
+    <span class="hljs-keyword">const</span> order = <span class="hljs-title class_">Order</span>.<span class="hljs-title function_">place</span>(customerId, items);
+    order.<span class="hljs-title function_">confirm</span>();
+    order.<span class="hljs-title function_">ship</span>();
+    <span class="hljs-comment">// SHIPPED になった注文</span>
+    <span class="hljs-title function_">expect</span>(<span class="hljs-function">() =&gt;</span> order.<span class="hljs-title function_">cancel</span>()).<span class="hljs-title function_">toThrow</span>(<span class="hljs-string">&#x27;この注文はキャンセルできません&#x27;</span>);
+  });
+});</code></pre><hr>
+<h3>🟢 アプリケーション層（Application Layer）― ユースケースの実装</h3>
+<pre><code class="hljs language-plaintext">役割：ドメインオブジェクトを「指揮（Orchestrate）」してユースケースを実現する
+依存：ドメイン層のみ
+置くもの：Use Case, Command/Query（入力 DTO）</code></pre><p><strong>重要な原則：アプリケーション層にビジネスロジックを書かない。</strong>
+「どの順番で何を呼ぶか」を決めるだけです。</p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// src/application/order/PlaceOrderUseCase.ts</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PlaceOrderUseCase</span> {
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params">
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">orderRepository</span>: <span class="hljs-title class_">OrderRepository</span>,        <span class="hljs-comment">// ← 抽象（Interface）に依存</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">customerRepository</span>: <span class="hljs-title class_">CustomerRepository</span>,  <span class="hljs-comment">// ← 抽象（Interface）に依存</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">orderDomainService</span>: <span class="hljs-title class_">OrderDomainService</span>
+  </span>) {}
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">execute</span>(<span class="hljs-attr">command</span>: <span class="hljs-title class_">PlaceOrderCommand</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">PlaceOrderResult</span>&gt; {
+
+    <span class="hljs-comment">// ① 入力を検証してドメインオブジェクトに変換（プリミティブ → VO）</span>
+    <span class="hljs-keyword">const</span> customerId = <span class="hljs-title class_">CustomerId</span>.<span class="hljs-title function_">of</span>(command.<span class="hljs-property">customerId</span>);
+
+    <span class="hljs-comment">// ② 顧客の存在確認（リポジトリに委譲）</span>
+    <span class="hljs-keyword">const</span> customer = <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">customerRepository</span>.<span class="hljs-title function_">findById</span>(customerId);
+    <span class="hljs-keyword">if</span> (!customer) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`顧客が見つかりません: <span class="hljs-subst">${command.customerId}</span>`</span>);
+
+    <span class="hljs-comment">// ③ コマンドから注文明細を生成</span>
+    <span class="hljs-keyword">const</span> orderItems = command.<span class="hljs-property">items</span>.<span class="hljs-title function_">map</span>(<span class="hljs-function">(<span class="hljs-params">item</span>) =&gt;</span>
+      <span class="hljs-title class_">OrderItem</span>.<span class="hljs-title function_">create</span>(
+        item.<span class="hljs-property">productId</span>,
+        item.<span class="hljs-property">productName</span>,
+        <span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(item.<span class="hljs-property">unitPriceAmount</span>, item.<span class="hljs-property">currency</span>),
+        item.<span class="hljs-property">quantity</span>
+      )
+    );
+
+    <span class="hljs-comment">// ④ 注文を発注する（ビジネスロジックは Order に委譲）</span>
+    <span class="hljs-keyword">const</span> order = <span class="hljs-title class_">Order</span>.<span class="hljs-title function_">place</span>(customerId, orderItems);
+    <span class="hljs-comment">//   ↑ Order.place() の中でキャンセル不可チェック等を行う</span>
+
+    <span class="hljs-comment">// ⑤ 割引を計算する（ビジネスロジックは ドメインサービス に委譲）</span>
+    <span class="hljs-keyword">const</span> discount = <span class="hljs-variable language_">this</span>.<span class="hljs-property">orderDomainService</span>.<span class="hljs-title function_">calculateDiscount</span>(
+      customer,
+      order.<span class="hljs-property">totalAmount</span>
+    );
+
+    <span class="hljs-comment">// ⑥ 注文を保存する（リポジトリに委譲）</span>
+    <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">orderRepository</span>.<span class="hljs-title function_">save</span>(order);
+
+    <span class="hljs-comment">// ⑦ ドメインイベントを取り出して外部に通知（イベントバス等）</span>
+    <span class="hljs-keyword">const</span> events = order.<span class="hljs-title function_">pullDomainEvents</span>();
+    <span class="hljs-comment">// → [OrderPlaced { orderId, customerId, occurredAt }]</span>
+
+    <span class="hljs-keyword">return</span> { <span class="hljs-attr">orderId</span>: order.<span class="hljs-property">id</span>.<span class="hljs-property">value</span>, discount };
+  }
+}</code></pre><p>アプリケーション層の <code>execute()</code> は「指揮者」です。
+ビジネスロジックは <code>Order.place()</code>・<code>orderDomainService.calculateDiscount()</code> が担当し、
+ユースケースは <strong>何を呼ぶかの順番</strong> だけを管理します。</p>
+<hr>
+<h3>🟡 インターフェースアダプタ層（Interface Adapters）― 変換と橋渡し</h3>
+<pre><code class="hljs language-plaintext">役割：外界（HTTP・UI）とドメイン・アプリを繋ぐ変換層
+依存：アプリケーション層に依存
+置くもの：Controller, Presenter, Repository 実装</code></pre><pre><code class="hljs language-typescript"><span class="hljs-comment">// Controller の例（Express を使った場合）</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderController</span> {
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params"><span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">placeOrderUseCase</span>: <span class="hljs-title class_">PlaceOrderUseCase</span></span>) {}
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">placeOrder</span>(<span class="hljs-attr">req</span>: <span class="hljs-title class_">Request</span>, <span class="hljs-attr">res</span>: <span class="hljs-title class_">Response</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-built_in">void</span>&gt; {
+    <span class="hljs-comment">// HTTP リクエストのデータを Command に変換</span>
+    <span class="hljs-keyword">const</span> <span class="hljs-attr">command</span>: <span class="hljs-title class_">PlaceOrderCommand</span> = {
+      <span class="hljs-attr">customerId</span>: req.<span class="hljs-property">body</span>.<span class="hljs-property">customerId</span>,
+      <span class="hljs-attr">items</span>: req.<span class="hljs-property">body</span>.<span class="hljs-property">items</span>.<span class="hljs-title function_">map</span>(<span class="hljs-function">(<span class="hljs-params"><span class="hljs-attr">i</span>: <span class="hljs-built_in">any</span></span>) =&gt;</span> ({
+        <span class="hljs-attr">productId</span>: i.<span class="hljs-property">product_id</span>,     <span class="hljs-comment">// ← snake_case から camelCase へ変換</span>
+        <span class="hljs-attr">productName</span>: i.<span class="hljs-property">product_name</span>,
+        <span class="hljs-attr">unitPriceAmount</span>: i.<span class="hljs-property">unit_price</span>,
+        <span class="hljs-attr">currency</span>: i.<span class="hljs-property">currency</span> ?? <span class="hljs-string">&#x27;JPY&#x27;</span>,
+        <span class="hljs-attr">quantity</span>: i.<span class="hljs-property">quantity</span>,
+      })),
+    };
+
+    <span class="hljs-comment">// ユースケースを実行</span>
+    <span class="hljs-keyword">const</span> result = <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">placeOrderUseCase</span>.<span class="hljs-title function_">execute</span>(command);
+
+    <span class="hljs-comment">// 結果を HTTP レスポンスに変換</span>
+    res.<span class="hljs-title function_">status</span>(<span class="hljs-number">201</span>).<span class="hljs-title function_">json</span>({ <span class="hljs-attr">order_id</span>: result.<span class="hljs-property">orderId</span> }); <span class="hljs-comment">// ← camelCase を snake_case に変換</span>
+  }
+}</code></pre><hr>
+<h3>🔴 フレームワーク・ドライバ層（Frameworks &amp; Drivers）― 最外部</h3>
+<pre><code class="hljs language-plaintext">役割：具体的な技術の実装
+依存：すべてのレイヤーに依存してよい
+置くもの：Express, PostgreSQL, Redis, 外部 API クライアント</code></pre><p>このレイヤーは <strong>差し替えが最も頻繁に起きる</strong> 場所です。
+クリーンアーキテクチャでは、このレイヤーの変更がドメイン層に影響しないようにします。</p>
+<hr>
+<h2>4. 依存性逆転の原則（DIP）― リポジトリで理解する</h2>
+<p>クリーンアーキテクチャの核心的なテクニックが <strong>依存性逆転の原則（DIP）</strong> です。</p>
+<h3>問題：ドメイン層がインフラ層を直接参照すると？</h3>
+<pre><code class="hljs language-plaintext">【NG：内側（ドメイン）が外側（インフラ）に依存している】
+
+PlaceOrderUseCase（Application）
+  import { PostgresOrderRepository } from &#x27;../../infra/PostgresOrderRepository&#x27;
+  //                ↑ 具体的な実装を知っている
+
+→ テスト時に PostgreSQL が必要
+→ MySQL に変えたいとき PlaceOrderUseCase も変更が必要
+→ 「外側に依存している内側」= クリーンアーキテクチャ違反</code></pre><h3>解決：インターフェース（抽象）を間に挟む</h3>
+<pre><code class="hljs language-plaintext">【OK：内側は抽象（Interface）に依存。外側が実装を提供する】
+
+                         依存方向
+Domain Layer ─────────────────────────→ OrderRepository（interface）
+                                               ↑
+                                           implements
+                                               │
+Infrastructure Layer ──────────────── InMemoryOrderRepository
+                                       （具体的な実装）
+
+矢印の向きに注目：
+  ・ドメインは Interface に依存（内 → 抽象）← OK
+  ・インフラが Interface を実装（外 → 抽象を満たす）← OK
+  ・ドメインはインフラを知らない ← これが「依存の逆転」</code></pre><pre><code class="hljs language-typescript"><span class="hljs-comment">// ─── ドメイン層（抽象を定義）───────────────────────────────────────</span>
+<span class="hljs-comment">// src/domain/order/OrderRepository.ts</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">OrderRepository</span> {
+  <span class="hljs-title function_">findById</span>(<span class="hljs-attr">id</span>: <span class="hljs-title class_">OrderId</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">Order</span> | <span class="hljs-literal">null</span>&gt;;
+  <span class="hljs-title function_">save</span>(<span class="hljs-attr">order</span>: <span class="hljs-title class_">Order</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-built_in">void</span>&gt;;
+}
+
+<span class="hljs-comment">// ─── インフラ層（抽象を実装）───────────────────────────────────────</span>
+<span class="hljs-comment">// src/infrastructure/order/InMemoryOrderRepository.ts</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">InMemoryOrderRepository</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">OrderRepository</span> {
+  <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> store = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Map</span>&lt;<span class="hljs-built_in">string</span>, <span class="hljs-title class_">Order</span>&gt;();
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">findById</span>(<span class="hljs-attr">id</span>: <span class="hljs-title class_">OrderId</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">Order</span> | <span class="hljs-literal">null</span>&gt; {
+    <span class="hljs-keyword">return</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">store</span>.<span class="hljs-title function_">get</span>(id.<span class="hljs-property">value</span>) ?? <span class="hljs-literal">null</span>;
+  }
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">save</span>(<span class="hljs-attr">order</span>: <span class="hljs-title class_">Order</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-built_in">void</span>&gt; {
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">store</span>.<span class="hljs-title function_">set</span>(order.<span class="hljs-property">id</span>.<span class="hljs-property">value</span>, order);
+  }
+}
+
+<span class="hljs-comment">// ─── アプリケーション層（抽象に依存）──────────────────────────────</span>
+<span class="hljs-comment">// src/application/order/PlaceOrderUseCase.ts</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">PlaceOrderUseCase</span> {
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params">
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">orderRepository</span>: <span class="hljs-title class_">OrderRepository</span> <span class="hljs-comment">// ← Interface に依存（実装を知らない）</span>
+  </span>) {}
+}
+
+<span class="hljs-comment">// ─── 依存性の注入（Composition Root）──────────────────────────────</span>
+<span class="hljs-comment">// src/demo.ts や main.ts</span>
+<span class="hljs-keyword">const</span> orderRepository = <span class="hljs-keyword">new</span> <span class="hljs-title class_">InMemoryOrderRepository</span>(); <span class="hljs-comment">// ← ここだけ具体的な実装を指定</span>
+<span class="hljs-keyword">const</span> useCase = <span class="hljs-keyword">new</span> <span class="hljs-title class_">PlaceOrderUseCase</span>(orderRepository);
+<span class="hljs-comment">// 本番では PostgresOrderRepository() に差し替えるだけ</span></code></pre><hr>
+<h2>5. このプロジェクトのディレクトリ構造と対応関係</h2>
+<pre><code class="hljs language-plaintext">src/
+├── domain/                          ← 🔵 ドメイン層（最重要・外部依存ゼロ）
+│   ├── order/
+│   │   ├── Order.ts                 ← 集約ルート（エンティティ + ドメインイベント発行）
+│   │   ├── OrderItem.ts             ← エンティティ（集約の内部）
+│   │   ├── OrderId.ts               ← 値オブジェクト（型安全な ID）
+│   │   ├── OrderStatus.ts           ← 値オブジェクト（状態遷移を表現）
+│   │   ├── OrderRepository.ts       ← リポジトリ Interface（抽象）
+│   │   └── OrderDomainService.ts    ← ドメインサービス（割引計算）
+│   ├── customer/
+│   │   ├── Customer.ts              ← 集約ルート
+│   │   ├── CustomerId.ts            ← 値オブジェクト
+│   │   └── CustomerRepository.ts   ← リポジトリ Interface
+│   └── shared/
+│       ├── Money.ts                 ← 値オブジェクト（複数集約で共有）
+│       └── DomainEvent.ts           ← ドメインイベント基底 Interface + AggregateRoot
+│
+├── application/                     ← 🟢 アプリケーション層（ユースケース）
+│   └── order/
+│       ├── PlaceOrderUseCase.ts     ← ユースケース（注文を発注する）
+│       └── PlaceOrderCommand.ts     ← コマンド（入力 DTO）
+│
+└── infrastructure/                  ← 🔴 インフラ層（依存の実装）
+    ├── order/
+    │   └── InMemoryOrderRepository.ts  ← OrderRepository の実装（開発・テスト用）
+    └── customer/
+        └── InMemoryCustomerRepository.ts</code></pre><h3>依存関係の確認</h3>
+<pre><code class="hljs language-plaintext">infrastructure/ が domain/ に依存　→ OK（外 → 内）
+application/ が domain/ に依存　　→ OK（外 → 内）
+domain/ が他に依存　　　　　　　　→ 一切なし！</code></pre><hr>
+<h2>6. データの流れ：注文発注の全体フロー</h2>
+<pre><code class="hljs language-plaintext">1. HTTP POST /orders （外部からのリクエスト）
+        ↓
+2. OrderController（Interface Adapters）
+   ・HTTP ボディを PlaceOrderCommand に変換
+        ↓
+3. PlaceOrderUseCase.execute(command)（Application）
+   ・customerId → CustomerId.of(command.customerId)
+   ・items → OrderItem.create(...)
+        ↓
+4. customerRepository.findById(customerId)（Domain Interface → Infra 実装）
+   ・顧客の存在確認
+        ↓
+5. Order.place(customerId, orderItems)（Domain）
+   ・不変条件チェック
+   ・OrderPlaced ドメインイベントを記録
+        ↓
+6. orderDomainService.calculateDiscount(customer, order.totalAmount)（Domain）
+   ・VIP 判定と割引計算
+        ↓
+7. orderRepository.save(order)（Domain Interface → Infra 実装）
+   ・InMemoryOrderRepository に保存
+        ↓
+8. order.pullDomainEvents() → [OrderPlaced]（Domain）
+   ・イベントを取り出してイベントバスへ
+        ↓
+9. HTTP 201 { order_id: &quot;ord-xxx&quot; }（外部へのレスポンス）</code></pre><hr>
+<h2>7. DDD + クリーンアーキテクチャの対応関係</h2>
+<table>
+<thead>
+<tr>
+<th>DDD の概念</th>
+<th>クリーンアーキテクチャのレイヤー</th>
+<th>本プロジェクトの例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>エンティティ</td>
+<td>ドメイン層</td>
+<td><code>Order.ts</code>, <code>OrderItem.ts</code></td>
+</tr>
+<tr>
+<td>値オブジェクト</td>
+<td>ドメイン層</td>
+<td><code>Money.ts</code>, <code>OrderId.ts</code>, <code>OrderStatus.ts</code></td>
+</tr>
+<tr>
+<td>集約</td>
+<td>ドメイン層</td>
+<td><code>Order</code>（集約ルート）+ <code>OrderItem</code></td>
+</tr>
+<tr>
+<td>ドメインサービス</td>
+<td>ドメイン層</td>
+<td><code>OrderDomainService.ts</code></td>
+</tr>
+<tr>
+<td>リポジトリ（Interface）</td>
+<td>ドメイン層</td>
+<td><code>OrderRepository.ts</code></td>
+</tr>
+<tr>
+<td>ドメインイベント</td>
+<td>ドメイン層</td>
+<td><code>OrderPlaced</code>, <code>OrderCancelled</code></td>
+</tr>
+<tr>
+<td>ユースケース</td>
+<td>アプリケーション層</td>
+<td><code>PlaceOrderUseCase.ts</code></td>
+</tr>
+<tr>
+<td>コマンド（DTO）</td>
+<td>アプリケーション層</td>
+<td><code>PlaceOrderCommand.ts</code></td>
+</tr>
+<tr>
+<td>リポジトリ（実装）</td>
+<td>インフラ層</td>
+<td><code>InMemoryOrderRepository.ts</code></td>
+</tr>
+<tr>
+<td>Controller</td>
+<td>インターフェースアダプタ層</td>
+<td>（本プロジェクトでは省略）</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>8. よくある間違いと正しい対処</h2>
+<h3>間違い1：ドメイン層にインフラの依存を混入させる</h3>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// ❌ NG：ドメインクラスが DB ライブラリをインポートしている</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Repository</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;typeorm&#x27;</span>; <span class="hljs-comment">// ← インフラ依存！</span>
+<span class="hljs-keyword">import</span> { <span class="hljs-title class_">Column</span>, <span class="hljs-title class_">Entity</span> } <span class="hljs-keyword">from</span> <span class="hljs-string">&#x27;typeorm&#x27;</span>; <span class="hljs-comment">// ← ORM の デコレータをドメインに使う</span>
+
+<span class="hljs-meta">@Entity</span>()  <span class="hljs-comment">// ← NG</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">Order</span> {
+  <span class="hljs-meta">@Column</span>()
+  <span class="hljs-attr">status</span>: <span class="hljs-built_in">string</span>;
+}</code></pre><pre><code class="hljs language-typescript"><span class="hljs-comment">// ✅ OK：ドメインクラスは純粋な TypeScript のみ</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Order</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_ inherited__">AggregateRoot</span> {
+  <span class="hljs-keyword">private</span> <span class="hljs-attr">_status</span>: <span class="hljs-title class_">OrderStatus</span>;
+  <span class="hljs-comment">// → TypeORM の影響を受けない純粋なクラス</span>
+}</code></pre><h3>間違い2：ユースケースにビジネスロジックを書く</h3>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// ❌ NG：ユースケースにビジネスルールが書かれている</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">PlaceOrderUseCase</span> {
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">execute</span>(<span class="hljs-params"><span class="hljs-attr">command</span>: <span class="hljs-title class_">PlaceOrderCommand</span></span>) {
+    <span class="hljs-keyword">const</span> order = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Order</span>(command.<span class="hljs-property">customerId</span>, command.<span class="hljs-property">items</span>);
+
+    <span class="hljs-comment">// ← ビジネスルールがユースケースに！</span>
+    <span class="hljs-keyword">if</span> (order.<span class="hljs-property">items</span>.<span class="hljs-property">length</span> === <span class="hljs-number">0</span>) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">&#x27;...&#x27;</span>);
+    }
+    <span class="hljs-keyword">if</span> (customer.<span class="hljs-title function_">isVip</span>()) {
+      order.<span class="hljs-property">discount</span> = order.<span class="hljs-property">total</span> * <span class="hljs-number">0.1</span>;
+    }
+  }
+}</code></pre><pre><code class="hljs language-typescript"><span class="hljs-comment">// ✅ OK：ビジネスルールはドメイン層に</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">PlaceOrderUseCase</span> {
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">execute</span>(<span class="hljs-params"><span class="hljs-attr">command</span>: <span class="hljs-title class_">PlaceOrderCommand</span></span>) {
+    <span class="hljs-comment">// ← ユースケースは「何をどの順番で呼ぶか」だけを書く</span>
+    <span class="hljs-keyword">const</span> order = <span class="hljs-title class_">Order</span>.<span class="hljs-title function_">place</span>(customerId, items); <span class="hljs-comment">// ← バリデーションは Order の中</span>
+    <span class="hljs-keyword">const</span> discount = <span class="hljs-variable language_">this</span>.<span class="hljs-property">domainService</span>.<span class="hljs-title function_">calculateDiscount</span>(customer, order.<span class="hljs-property">totalAmount</span>);
+    <span class="hljs-keyword">await</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">orderRepository</span>.<span class="hljs-title function_">save</span>(order);
+  }
+}</code></pre><hr>
+<h2>9. まとめ</h2>
+<table>
+<thead>
+<tr>
+<th>原則</th>
+<th>意味</th>
+<th>効果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>依存方向ルール</strong></td>
+<td>外側から内側へのみ依存</td>
+<td>内側（ドメイン）が安定し変更に強くなる</td>
+</tr>
+<tr>
+<td><strong>依存性逆転（DIP）</strong></td>
+<td>詳細は抽象（Interface）に依存</td>
+<td>DB・フレームワークを自由に差し替えられる</td>
+</tr>
+<tr>
+<td><strong>関心の分離</strong></td>
+<td>各レイヤーに1つの責務</td>
+<td>変更の影響範囲が限定される</td>
+</tr>
+<tr>
+<td><strong>テスト容易性</strong></td>
+<td>ドメイン層は外部なしで動く</td>
+<td>単体テストが速く・シンプルに書ける</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p><strong>「ビジネスロジックはドメイン層に。技術的詳細は外側に。依存は内側に向ける。」</strong>
+この3原則を守ることで、変化に強く、テストしやすいコードになります。</p>
+</blockquote>
+
+      </article>
+      <footer>
+        <p>DDD 学習ガイド — TypeScript + クリーンアーキテクチャ</p>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

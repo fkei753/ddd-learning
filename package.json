@@ -4,11 +4,15 @@
   "description": "DDD + クリーンアーキテクチャ 学習サンプル",
   "scripts": {
     "demo": "ts-node src/demo.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "docs": "ts-node scripts/build-docs.ts"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
+    "@types/marked": "^5.0.2",
+    "@types/node": "^20.0.0",
+    "highlight.js": "^11.11.1",
+    "marked": "^18.0.5",
     "ts-node": "^10.9.0",
-    "@types/node": "^20.0.0"
+    "typescript": "^5.0.0"
   }
 }

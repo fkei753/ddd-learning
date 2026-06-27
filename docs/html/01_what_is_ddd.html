@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ドメイン駆動設計（DDD）とは — DDD 学習ガイド</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="sidebar-header">
+        <h2>DDD 学習ガイド</h2>
+        <p>TypeScript で学ぶ</p>
+      </div>
+      <ul>
+        <li class="active"><a href="01_what_is_ddd.html">① DDDとは</a></li>
+        <li><a href="02_ubiquitous_language.html">② ユビキタス言語</a></li>
+        <li><a href="03_strategic_design.html">③ 戦略的設計</a></li>
+        <li><a href="04_tactical_design.html">④ 戦術的設計</a></li>
+        <li><a href="05_clean_architecture.html">⑤ クリーンアーキテクチャ</a></li>
+      </ul>
+    </nav>
+    <main class="content">
+      <article>
+        <h1>ドメイン駆動設計（DDD）とは</h1>
+<h2>1. DDDの概要</h2>
+<p><strong>ドメイン駆動設計（Domain-Driven Design / DDD）</strong> は、Eric Evans が2003年に著書
+<em>&quot;Domain-Driven Design: Tackling Complexity in the Heart of Software&quot;</em>（通称「青本」）で
+提唱したソフトウェア設計アプローチです。</p>
+<blockquote>
+<p><strong>核心思想：ソフトウェアの複雑さに立ち向かう最良の方法は、
+そのビジネス領域（ドメイン）を深く理解し、設計に反映させることである。</strong></p>
+</blockquote>
+<p>この思想の背景にあるのは、「最も難しいのは技術ではなくビジネスの理解だ」という観察です。
+フレームワークやデータベースは数年で入れ替わりますが、ビジネスのルールと概念は
+長期にわたって存在し続けます。それならば、<strong>変わりにくいビジネスの本質をコードの中心に置くべき</strong>
+だというのが DDD の出発点です。</p>
+<hr>
+<h2>2. DDD が生まれた背景：「大きな泥団子」問題</h2>
+<h3>ビッグボール・オブ・マッド（Big Ball of Mud）</h3>
+<p>DDD が提唱される以前、多くのシステムは設計なしに成長し、
+<strong>ビッグボール・オブ・マッド（Big Ball of Mud）</strong> と呼ばれる状態に陥っていました。</p>
+<pre><code class="hljs language-plaintext">【ビッグボール・オブ・マッドの症状】
+
+  UserController
+       │ 直接呼び出し
+       ├──→ Database.query(&quot;SELECT * FROM orders WHERE ...&quot;)
+       │
+       ├──→ EmailService.send(...)   ← なぜコントローラが？
+       │
+       └──→ if (user.type === &#x27;vip&#x27;) {   ← ビジネスロジックが
+               discount = total * 0.1;    ← UIに散在している
+             }</code></pre><p>このような状態では：</p>
+<ul>
+<li>一か所を変えると別の場所が壊れる（スパゲッティ）</li>
+<li>テストが書けない（依存が複雑すぎる）</li>
+<li>新しい開発者がコードを理解できない</li>
+<li>仕様変更のたびに「どこを直せばいいか」わからない</li>
+</ul>
+<h3>貧血ドメインモデル（Anemic Domain Model）</h3>
+<p>もう一つの問題パターンが <strong>貧血ドメインモデル</strong> です。
+「オブジェクト指向っぽく書いた」が、実態はデータの入れ物にすぎないコードです。</p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// ❌ 貧血ドメインモデルの例</span>
+<span class="hljs-comment">// クラスはあるが、データを持つだけでロジックを持たない</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">Order</span> {
+  <span class="hljs-attr">id</span>: <span class="hljs-built_in">string</span>;
+  <span class="hljs-attr">status</span>: <span class="hljs-built_in">string</span>;
+  <span class="hljs-attr">items</span>: <span class="hljs-title class_">OrderItem</span>[];
+  <span class="hljs-attr">totalAmount</span>: <span class="hljs-built_in">number</span>;
+  <span class="hljs-comment">// メソッドは getter/setter のみ</span>
+}
+
+<span class="hljs-comment">// ロジックはすべて「サービスクラス」に書かれる</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderService</span> {
+  <span class="hljs-title function_">cancelOrder</span>(<span class="hljs-attr">order</span>: <span class="hljs-title class_">Order</span>): <span class="hljs-built_in">void</span> {
+    <span class="hljs-comment">// ここに全ロジックが集まり、OrderService が肥大化する</span>
+    <span class="hljs-keyword">if</span> (order.<span class="hljs-property">status</span> === <span class="hljs-string">&#x27;SHIPPED&#x27;</span>) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">&#x27;発送済みはキャンセルできません&#x27;</span>);
+    }
+    order.<span class="hljs-property">status</span> = <span class="hljs-string">&#x27;CANCELLED&#x27;</span>;
+  }
+
+  <span class="hljs-title function_">calculateTotal</span>(<span class="hljs-attr">order</span>: <span class="hljs-title class_">Order</span>): <span class="hljs-built_in">number</span> {
+    <span class="hljs-keyword">return</span> order.<span class="hljs-property">items</span>.<span class="hljs-title function_">reduce</span>(<span class="hljs-function">(<span class="hljs-params">sum, item</span>) =&gt;</span> sum + item.<span class="hljs-property">price</span> * item.<span class="hljs-property">quantity</span>, <span class="hljs-number">0</span>);
+  }
+
+  <span class="hljs-comment">// ...どんどん増えるメソッド</span>
+}</code></pre><p><strong>DDD ではロジックをエンティティ・集約に持たせ、</strong>
+<strong>モデルそのものが振る舞いを表現する「豊かなドメインモデル（Rich Domain Model）」を目指します。</strong></p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// ✅ 豊かなドメインモデルの例</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">Order</span> {
+  <span class="hljs-comment">// データとロジックが一体</span>
+  <span class="hljs-title function_">cancel</span>(): <span class="hljs-built_in">void</span> {
+    <span class="hljs-keyword">if</span> (!<span class="hljs-variable constant_">CANCELLABLE_STATUSES</span>.<span class="hljs-title function_">includes</span>(<span class="hljs-variable language_">this</span>.<span class="hljs-property">_status</span>)) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">&#x27;この注文はキャンセルできません&#x27;</span>);
+    }
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">_status</span> = <span class="hljs-title class_">OrderStatus</span>.<span class="hljs-property">CANCELLED</span>;
+    <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">addDomainEvent</span>(<span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderCancelled</span>(<span class="hljs-variable language_">this</span>.<span class="hljs-property">_id</span>));
+  }
+
+  <span class="hljs-keyword">get</span> <span class="hljs-title function_">totalAmount</span>(): <span class="hljs-title class_">Money</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">_items</span>.<span class="hljs-title function_">reduce</span>(
+      <span class="hljs-function">(<span class="hljs-params">sum, item</span>) =&gt;</span> sum.<span class="hljs-title function_">add</span>(item.<span class="hljs-property">subtotal</span>),
+      <span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(<span class="hljs-number">0</span>, <span class="hljs-string">&#x27;JPY&#x27;</span>)
+    );
+  }
+}</code></pre><hr>
+<h2>3. DDD はいつ使うべきか</h2>
+<p>DDD はすべてのプロジェクトに適しているわけではありません。</p>
+<table>
+<thead>
+<tr>
+<th>プロジェクトの特性</th>
+<th>DDD の適合度</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>複雑なビジネスルールがある</td>
+<td>✅ 高い（DDD の真価が発揮される）</td>
+</tr>
+<tr>
+<td>ドメインエキスパートと継続的に連携できる</td>
+<td>✅ 高い</td>
+</tr>
+<tr>
+<td>長期にわたってメンテナンスされる</td>
+<td>✅ 高い</td>
+</tr>
+<tr>
+<td>CRUD 中心のシンプルな管理画面</td>
+<td>❌ 低い（過剰設計になる）</td>
+</tr>
+<tr>
+<td>使い捨てのプロトタイプ</td>
+<td>❌ 低い</td>
+</tr>
+<tr>
+<td>チームが3人以下で短期</td>
+<td>❌ 低い（コストが見合わない）</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p><strong>DDD の導入コストは高い。それを上回るビジネスの複雑さがある場合にのみ採用を検討する。</strong></p>
+</blockquote>
+<hr>
+<h2>4. なぜ DDD が必要か？</h2>
+<h3>よくある現場の問題</h3>
+<p><strong>問題1：コードを読んでも「何をするシステムか」が伝わらない</strong></p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// 意図が全く伝わらないコード</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">proc1</span>(<span class="hljs-params"><span class="hljs-attr">uid</span>: <span class="hljs-built_in">string</span>, <span class="hljs-attr">arr</span>: <span class="hljs-built_in">any</span>[]</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-built_in">void</span>&gt; {
+  <span class="hljs-keyword">const</span> u = <span class="hljs-keyword">await</span> db.<span class="hljs-title function_">get</span>(<span class="hljs-string">&#x27;users&#x27;</span>, uid);
+  <span class="hljs-keyword">if</span> (!u || u.<span class="hljs-property">f1</span> !== <span class="hljs-number">1</span>) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">&#x27;err1&#x27;</span>);
+  <span class="hljs-keyword">const</span> t = arr.<span class="hljs-title function_">map</span>(<span class="hljs-function"><span class="hljs-params">a</span> =&gt;</span> ({ <span class="hljs-attr">pid</span>: a.<span class="hljs-property">p</span>, <span class="hljs-attr">n</span>: a.<span class="hljs-property">nm</span>, <span class="hljs-attr">up</span>: a.<span class="hljs-property">pr</span>, <span class="hljs-attr">q</span>: a.<span class="hljs-property">q</span> }));
+  <span class="hljs-comment">// ...</span>
+}
+
+<span class="hljs-comment">// DDD で書いたコード（ユビキタス言語そのまま）</span>
+<span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">placeOrder</span>(<span class="hljs-params"><span class="hljs-attr">customerId</span>: <span class="hljs-built_in">string</span>, <span class="hljs-attr">items</span>: <span class="hljs-title class_">OrderItemInput</span>[]</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-built_in">void</span>&gt; {
+  <span class="hljs-keyword">const</span> customer = <span class="hljs-keyword">await</span> customerRepository.<span class="hljs-title function_">findById</span>(<span class="hljs-title class_">CustomerId</span>.<span class="hljs-title function_">of</span>(customerId));
+  <span class="hljs-keyword">if</span> (!customer) <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">&#x27;顧客が見つかりません&#x27;</span>);
+  <span class="hljs-keyword">const</span> order = <span class="hljs-title class_">Order</span>.<span class="hljs-title function_">place</span>(customer.<span class="hljs-property">id</span>, items.<span class="hljs-title function_">map</span>(toOrderItem));
+  <span class="hljs-keyword">await</span> orderRepository.<span class="hljs-title function_">save</span>(order);
+}</code></pre><p><strong>問題2：開発者とビジネス担当者が「違う言葉」で話している</strong></p>
+<pre><code class="hljs language-plaintext">ビジネス担当者の言葉：「顧客が商品をカートに入れて購入確定した」
+開発者の理解：       「user が item を basket に add して checkout した」
+DBのテーブル名：      tbl_usr_shp, order_mst, cart_detail
+
+→ 3者の言葉が全部バラバラ。仕様変更があるたびに翻訳が必要。</code></pre><p><strong>問題3：仕様変更のたびに影響範囲が読めない</strong></p>
+<p>「VIP 顧客への割引率を 10% から 15% に変更する」という変更が、
+コード全体の何か所に散在しているか、誰も把握できない状態になる。</p>
+<h3>DDD が解決すること</h3>
+<table>
+<thead>
+<tr>
+<th>問題</th>
+<th>DDD のアプローチ</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>言葉のずれ</td>
+<td><strong>ユビキタス言語</strong> でチーム全体の共通語を作る</td>
+</tr>
+<tr>
+<td>巨大すぎるシステム</td>
+<td><strong>境界づけられたコンテキスト</strong> で意味のある単位に分割</td>
+</tr>
+<tr>
+<td>ロジックの散在</td>
+<td><strong>ドメイン層</strong> にビジネスロジックを集約</td>
+</tr>
+<tr>
+<td>変更への弱さ</td>
+<td><strong>集約・不変条件</strong> で変更の影響範囲を明確化</td>
+</tr>
+<tr>
+<td>テストの難しさ</td>
+<td>ドメイン層は外部依存がなく純粋なロジックのみ → テストしやすい</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>5. DDD の二層構造</h2>
+<p>DDD は大きく <strong>戦略的設計</strong> と <strong>戦術的設計</strong> に分かれます。</p>
+<pre><code class="hljs language-plaintext">DDD
+├── 戦略的設計（Strategic Design）  ← 「どう分割するか」の地図を描く
+│   ├── ユビキタス言語                 共通語を定義する
+│   ├── 境界づけられたコンテキスト     モデルが有効な範囲を決める
+│   └── コンテキストマップ            コンテキスト間の関係を描く
+│
+└── 戦術的設計（Tactical Design）  ← 「どう実装するか」のパターン集
+    ├── エンティティ（Entity）         IDで識別されるオブジェクト
+    ├── 値オブジェクト（Value Object） 属性で識別されるオブジェクト
+    ├── 集約（Aggregate）             整合性を保つ単位
+    ├── ドメインサービス（Domain Service）どの集約にも属さないロジック
+    ├── リポジトリ（Repository）       永続化の抽象化
+    └── ドメインイベント（Domain Event）起きた事実の通知</code></pre><p><strong>戦略的設計が土台</strong> です。どのコンテキストを切り出すかを決めずに
+戦術的設計の実装パターンだけ採用しても、設計の整合性は保てません。</p>
+<hr>
+<h2>6. ドメインとは</h2>
+<p><strong>ドメイン（Domain）</strong> とは、ソフトウェアが解決しようとしている
+<strong>現実世界のビジネス領域</strong> のことです。</p>
+<p>「EC サイトを作る」と言ったとき、そのドメインには以下のような
+<strong>概念・ルール・手順</strong> が存在します：</p>
+<ul>
+<li>顧客は注文を発注できる</li>
+<li>在庫がない商品は販売できない</li>
+<li>VIP 顧客は割引を受けられる</li>
+<li>発送済みの注文はキャンセルできない</li>
+</ul>
+<p>これらを「<strong>ドメイン知識（Domain Knowledge）</strong>」と呼びます。
+DDD の目標は、このドメイン知識をそのままコードに反映させることです。</p>
+<table>
+<thead>
+<tr>
+<th>システム例</th>
+<th>ドメイン</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>EC サイト</td>
+<td>注文管理、在庫管理、配送管理、決済</td>
+</tr>
+<tr>
+<td>病院システム</td>
+<td>診察、処方、入退院管理</td>
+</tr>
+<tr>
+<td>銀行システム</td>
+<td>口座管理、送金、融資審査</td>
+</tr>
+<tr>
+<td>航空システム</td>
+<td>座席予約、搭乗管理、マイレージ</td>
+</tr>
+</tbody></table>
+<h3>コアドメイン vs サブドメイン</h3>
+<p>すべてのドメインが同じ重要度ではありません。
+ビジネスとして <strong>競合他社との差別化の源泉</strong> となる部分が <strong>コアドメイン</strong> です。</p>
+<pre><code class="hljs language-plaintext">EC サイトのドメイン
+├── コアドメイン（Core Domain）    ← 競合優位性の源泉、最も注力すべき
+│   └── レコメンデーションエンジン・パーソナライズ注文管理
+│
+├── 支援サブドメイン（Supporting）  ← ビジネスに必要だが差別化要因ではない
+│   └── 在庫管理・配送管理          自社で実装するが完璧さは求めない
+│
+└── 汎用サブドメイン（Generic）     ← 既製品・外部サービスで代替可能
+    └── 認証（Auth0）・決済（Stripe）・メール送信（SendGrid）</code></pre><blockquote>
+<p><strong>重要：コアドメインに DDD の最高の設計リソースを投下する。</strong>
+汎用サブドメインに同じ労力をかけるのは過剰投資です。</p>
+</blockquote>
+<h3>ドメインエキスパートとの協働</h3>
+<p>DDD において <strong>ドメインエキスパート（Domain Expert）</strong> とは、
+ビジネスのルールや概念を最もよく知っている人物です（必ずしもエンジニアではない）。</p>
+<pre><code class="hljs language-plaintext">ドメインエキスパートの例：
+- EC サイト → バイヤー・マーチャンダイザー・カスタマーサポートリード
+- 病院システム → 医師・看護師長・医事課スタッフ
+- 銀行システム → 融資担当者・コンプライアンス担当者</code></pre><p>DDD では開発者とドメインエキスパートが <strong>継続的な対話</strong> を通じて
+モデルを育てていきます。ドメインエキスパートの言葉がそのままコードになります。</p>
+<hr>
+<h2>7. 学習の流れ</h2>
+<p>このドキュメントシリーズでは、<strong>EC サイトの注文管理</strong> を例に
+DDD とクリーンアーキテクチャを段階的に学びます。</p>
+<pre><code class="hljs language-plaintext">実装例の全体像
+
+顧客（Customer）が注文（Order）を発注する（PlaceOrder）
+    ↓
+注文には複数の注文明細（OrderItem）が含まれる
+    ↓
+VIP 顧客なら割引が適用される（OrderDomainService）
+    ↓
+注文が保存される（OrderRepository → InMemoryOrderRepository）
+    ↓
+ドメインイベント（OrderPlaced）が発行される</code></pre><ol>
+<li><a href="./02_ubiquitous_language.md">ユビキタス言語</a> — 共通語を定義する</li>
+<li><a href="./03_strategic_design.md">戦略的設計</a> — システムを意味のある単位に分割する</li>
+<li><a href="./04_tactical_design.md">戦術的設計</a> — ドメインモデルを実装パターンで表現する</li>
+<li><a href="./05_clean_architecture.md">クリーンアーキテクチャ</a> — レイヤー構造でコードを整理する</li>
+</ol>
+<p>サンプルコードは <code>src/</code> ディレクトリに配置されています。</p>
+
+      </article>
+      <footer>
+        <p>DDD 学習ガイド — TypeScript + クリーンアーキテクチャ</p>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

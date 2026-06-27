@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>戦術的設計（Tactical Design） — DDD 学習ガイド</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="sidebar-header">
+        <h2>DDD 学習ガイド</h2>
+        <p>TypeScript で学ぶ</p>
+      </div>
+      <ul>
+        <li><a href="01_what_is_ddd.html">① DDDとは</a></li>
+        <li><a href="02_ubiquitous_language.html">② ユビキタス言語</a></li>
+        <li><a href="03_strategic_design.html">③ 戦略的設計</a></li>
+        <li class="active"><a href="04_tactical_design.html">④ 戦術的設計</a></li>
+        <li><a href="05_clean_architecture.html">⑤ クリーンアーキテクチャ</a></li>
+      </ul>
+    </nav>
+    <main class="content">
+      <article>
+        <h1>戦術的設計（Tactical Design）</h1>
+<h2>1. 全体像：戦術的設計の構成要素</h2>
+<p>戦術的設計は、ドメインモデルを実装するための <strong>構成要素（Building Blocks）</strong> の集まりです。
+それぞれがどんな役割を持つかを把握してから、個別に深掘りします。</p>
+<pre><code class="hljs language-plaintext">┌────────────────────────────────────────────────────────────┐
+│  集約（Aggregate）  ← 整合性を保つ単位                        │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │  集約ルート（Aggregate Root）  ← 外部への窓口            │  │
+│  │         extends AggregateRoot                        │  │
+│  │                                                      │  │
+│  │  ┌──────────────────┐   ┌──────────────────────┐    │  │
+│  │  │ エンティティ        │   │  値オブジェクト          │    │  │
+│  │  │ (Entity)         │   │  (Value Object)      │    │  │
+│  │  │  ・IDで識別         │   │  ・属性で識別            │    │  │
+│  │  │  ・可変             │   │  ・不変（Immutable）    │    │  │
+│  │  └──────────────────┘   └──────────────────────┘    │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                                                             │
+│  ドメインイベント（Domain Event）  ← 起きた事実の通知            │
+└────────────────────────────────────────────────────────────┘
+             ↕ 永続化・取得
+    リポジトリ（Repository）  ← 集約の保存・検索を抽象化
+
+             どの集約にも属さないロジック
+    ドメインサービス（Domain Service）</code></pre><hr>
+<h2>2. 値オブジェクト（Value Object）</h2>
+<h3>定義</h3>
+<p><strong>属性（値）によって識別されるオブジェクト。</strong>
+同じ属性を持つ 2 つのインスタンスは「同じもの」とみなします。</p>
+<h3>3 つの特徴</h3>
+<table>
+<thead>
+<tr>
+<th>特徴</th>
+<th>説明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>等値性（Equality）</strong></td>
+<td>属性が同じなら等しいと判断する</td>
+</tr>
+<tr>
+<td><strong>不変性（Immutability）</strong></td>
+<td>作成後に内部状態を変更しない。変更は新インスタンスを作る</td>
+</tr>
+<tr>
+<td><strong>自己検証（Self-Validation）</strong></td>
+<td>コンストラクタで不正な値を受け付けない</td>
+</tr>
+</tbody></table>
+<h3>なぜ値オブジェクトを使うか？</h3>
+<p>プリミティブ（<code>number</code>, <code>string</code>）で済む場合でも、値オブジェクトにすることで：</p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// ❌ プリミティブで書いた場合の問題</span>
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">calculateTax</span>(<span class="hljs-params"><span class="hljs-attr">amount</span>: <span class="hljs-built_in">number</span>, <span class="hljs-attr">taxRate</span>: <span class="hljs-built_in">number</span></span>): <span class="hljs-built_in">number</span> {
+  <span class="hljs-keyword">return</span> amount * taxRate; <span class="hljs-comment">// amount と taxRate、どちらが先？引数の順番を間違えやすい</span>
+}
+
+<span class="hljs-comment">// ❌ 通貨の概念がない</span>
+<span class="hljs-keyword">const</span> price = <span class="hljs-number">1500</span>; <span class="hljs-comment">// これは円？ドル？ユーロ？</span>
+
+<span class="hljs-comment">// ✅ 値オブジェクトで表現</span>
+<span class="hljs-keyword">const</span> price = <span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(<span class="hljs-number">1500</span>, <span class="hljs-string">&#x27;JPY&#x27;</span>);
+<span class="hljs-keyword">const</span> taxRate = <span class="hljs-title class_">TaxRate</span>.<span class="hljs-title function_">of</span>(<span class="hljs-number">0.1</span>);
+<span class="hljs-keyword">const</span> tax = price.<span class="hljs-title function_">applyTaxRate</span>(taxRate); <span class="hljs-comment">// → Money.of(150, &#x27;JPY&#x27;)</span>
+<span class="hljs-comment">// 引数の意味が型で明確。通貨情報も持っている。</span></code></pre><h3>実装：Money の例</h3>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// src/domain/shared/Money.ts</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Money</span> {
+  <span class="hljs-comment">// ① コンストラクタを private にして不正な生成を防ぐ</span>
+  <span class="hljs-keyword">private</span> <span class="hljs-title function_">constructor</span>(<span class="hljs-params">
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">_amount</span>: <span class="hljs-built_in">number</span>,
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">_currency</span>: <span class="hljs-built_in">string</span>
+  </span>) {
+    <span class="hljs-comment">// ② 自己検証：不正な値はコンストラクタで弾く</span>
+    <span class="hljs-keyword">if</span> (_amount &lt; <span class="hljs-number">0</span>) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`金額は0以上でなければなりません: <span class="hljs-subst">${_amount}</span>`</span>);
+    }
+    <span class="hljs-keyword">if</span> (!_currency || _currency.<span class="hljs-property">length</span> !== <span class="hljs-number">3</span>) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`通貨コードは3文字でなければなりません: <span class="hljs-subst">${_currency}</span>`</span>);
+    }
+  }
+
+  <span class="hljs-comment">// ③ ファクトリメソッドで生成する</span>
+  <span class="hljs-keyword">static</span> <span class="hljs-title function_">of</span>(<span class="hljs-attr">amount</span>: <span class="hljs-built_in">number</span>, <span class="hljs-attr">currency</span>: <span class="hljs-built_in">string</span>): <span class="hljs-title class_">Money</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Money</span>(amount, currency);
+  }
+
+  <span class="hljs-comment">// ④ 演算は新しいインスタンスを返す（不変性の保証）</span>
+  <span class="hljs-title function_">add</span>(<span class="hljs-attr">other</span>: <span class="hljs-title class_">Money</span>): <span class="hljs-title class_">Money</span> {
+    <span class="hljs-keyword">if</span> (<span class="hljs-variable language_">this</span>.<span class="hljs-property">_currency</span> !== other.<span class="hljs-property">_currency</span>) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`通貨が異なります: <span class="hljs-subst">${<span class="hljs-variable language_">this</span>._currency}</span> vs <span class="hljs-subst">${other._currency}</span>`</span>);
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Money</span>(<span class="hljs-variable language_">this</span>.<span class="hljs-property">_amount</span> + other.<span class="hljs-property">_amount</span>, <span class="hljs-variable language_">this</span>.<span class="hljs-property">_currency</span>);
+  }
+
+  <span class="hljs-title function_">multiply</span>(<span class="hljs-attr">factor</span>: <span class="hljs-built_in">number</span>): <span class="hljs-title class_">Money</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Money</span>(<span class="hljs-variable language_">this</span>.<span class="hljs-property">_amount</span> * factor, <span class="hljs-variable language_">this</span>.<span class="hljs-property">_currency</span>);
+  }
+
+  <span class="hljs-comment">// ⑤ 属性が同じなら等しい（等値性）</span>
+  <span class="hljs-title function_">equals</span>(<span class="hljs-attr">other</span>: <span class="hljs-title class_">Money</span>): <span class="hljs-built_in">boolean</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">_amount</span> === other.<span class="hljs-property">_amount</span> &amp;&amp; <span class="hljs-variable language_">this</span>.<span class="hljs-property">_currency</span> === other.<span class="hljs-property">_currency</span>;
+  }
+}</code></pre><pre><code class="hljs language-typescript"><span class="hljs-comment">// 使い方の例</span>
+<span class="hljs-keyword">const</span> price = <span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(<span class="hljs-number">1500</span>, <span class="hljs-string">&#x27;JPY&#x27;</span>);
+<span class="hljs-keyword">const</span> qty = <span class="hljs-number">3</span>;
+<span class="hljs-keyword">const</span> subtotal = price.<span class="hljs-title function_">multiply</span>(qty); <span class="hljs-comment">// Money.of(4500, &#x27;JPY&#x27;)</span>
+
+<span class="hljs-keyword">const</span> tax = subtotal.<span class="hljs-title function_">multiply</span>(<span class="hljs-number">0.1</span>);    <span class="hljs-comment">// Money.of(450, &#x27;JPY&#x27;)</span>
+<span class="hljs-keyword">const</span> total = subtotal.<span class="hljs-title function_">add</span>(tax);       <span class="hljs-comment">// Money.of(4950, &#x27;JPY&#x27;)</span>
+
+<span class="hljs-comment">// 等値比較（参照ではなく値で比較）</span>
+<span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(<span class="hljs-number">1500</span>, <span class="hljs-string">&#x27;JPY&#x27;</span>).<span class="hljs-title function_">equals</span>(<span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(<span class="hljs-number">1500</span>, <span class="hljs-string">&#x27;JPY&#x27;</span>)); <span class="hljs-comment">// → true</span>
+<span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(<span class="hljs-number">1500</span>, <span class="hljs-string">&#x27;JPY&#x27;</span>).<span class="hljs-title function_">equals</span>(<span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(<span class="hljs-number">1500</span>, <span class="hljs-string">&#x27;USD&#x27;</span>)); <span class="hljs-comment">// → false（通貨が違う）</span></code></pre><h3>よくある値オブジェクトの例</h3>
+<table>
+<thead>
+<tr>
+<th>概念</th>
+<th>なぜ値オブジェクトか</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Money(1500, &#39;JPY&#39;)</code></td>
+<td>金額は通貨と不可分。同じ値は等しい</td>
+</tr>
+<tr>
+<td><code>OrderId(&#39;ord-001&#39;)</code></td>
+<td>ID そのものが意味を持つ型安全な識別子</td>
+</tr>
+<tr>
+<td><code>Email(&#39;a@b.com&#39;)</code></td>
+<td>形式検証が必要。メアドは値で識別</td>
+</tr>
+<tr>
+<td><code>Address</code></td>
+<td>複数フィールドの組み合わせで一つの概念</td>
+</tr>
+<tr>
+<td><code>DateRange(from, to)</code></td>
+<td>期間を表す。<code>from &lt; to</code> の検証も含める</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>3. エンティティ（Entity）</h2>
+<h3>定義</h3>
+<p><strong>同一性（Identity）によって識別されるオブジェクト。</strong>
+属性が変わっても ID が同じなら「同じもの」とみなします。</p>
+<h3>エンティティ vs 値オブジェクトの判断基準</h3>
+<blockquote>
+<p><strong>「この概念を追跡する必要があるか？」</strong>
+追跡が必要 → エンティティ（IDで識別）
+追跡不要 → 値オブジェクト（値で識別）</p>
+</blockquote>
+<pre><code class="hljs language-plaintext">例：
+  ・注文（Order）→ エンティティ
+      「注文 ord-001 の状態が変わっても、同じ注文として追跡する」
+
+  ・金額（Money）→ 値オブジェクト
+      「1500円のインスタンスが別物でも、値が同じなら等しい。追跡は不要」
+
+  ・顧客（Customer）→ エンティティ
+      「名前や住所が変わっても、同じ顧客として追跡する」
+
+  ・住所（Address）→ 値オブジェクト
+      「引っ越しは『住所を更新』ではなく『新しい住所に置き換え』」</code></pre><h3>実装：OrderItem の例</h3>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// src/domain/order/OrderItem.ts</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderItem</span> {
+  <span class="hljs-comment">// コンストラクタを private にして factory 経由での生成を強制</span>
+  <span class="hljs-keyword">private</span> <span class="hljs-title function_">constructor</span>(<span class="hljs-params">
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">_id</span>: <span class="hljs-built_in">string</span>,      <span class="hljs-comment">// ← ID で識別（エンティティの特徴）</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">_productId</span>: <span class="hljs-built_in">string</span>,
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">_productName</span>: <span class="hljs-built_in">string</span>,
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">_unitPrice</span>: <span class="hljs-title class_">Money</span>,
+    <span class="hljs-keyword">private</span> <span class="hljs-attr">_quantity</span>: <span class="hljs-built_in">number</span>           <span class="hljs-comment">// ← 変更可能（エンティティの特徴）</span>
+  </span>) {
+    <span class="hljs-keyword">if</span> (_quantity &lt;= <span class="hljs-number">0</span>) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`数量は1以上でなければなりません: <span class="hljs-subst">${_quantity}</span>`</span>);
+    }
+  }
+
+  <span class="hljs-comment">// ファクトリメソッド</span>
+  <span class="hljs-keyword">static</span> <span class="hljs-title function_">create</span>(
+    <span class="hljs-attr">productId</span>: <span class="hljs-built_in">string</span>,
+    <span class="hljs-attr">productName</span>: <span class="hljs-built_in">string</span>,
+    <span class="hljs-attr">unitPrice</span>: <span class="hljs-title class_">Money</span>,
+    <span class="hljs-attr">quantity</span>: <span class="hljs-built_in">number</span>
+  ): <span class="hljs-title class_">OrderItem</span> {
+    <span class="hljs-keyword">const</span> id = <span class="hljs-string">`item-<span class="hljs-subst">${<span class="hljs-built_in">Date</span>.now()}</span>-<span class="hljs-subst">${<span class="hljs-built_in">Math</span>.random().toString(<span class="hljs-number">36</span>).slice(<span class="hljs-number">2</span>, <span class="hljs-number">7</span>)}</span>`</span>;
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderItem</span>(id, productId, productName, unitPrice, quantity);
+  }
+
+  <span class="hljs-comment">// 小計を計算（単価 × 数量）</span>
+  <span class="hljs-keyword">get</span> <span class="hljs-title function_">subtotal</span>(): <span class="hljs-title class_">Money</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">_unitPrice</span>.<span class="hljs-title function_">multiply</span>(<span class="hljs-variable language_">this</span>.<span class="hljs-property">_quantity</span>);
+  }
+}</code></pre><hr>
+<h2>4. 集約（Aggregate）</h2>
+<p>集約は DDD の戦術的設計で <strong>最も重要かつ難しい</strong> 概念です。</p>
+<h3>定義</h3>
+<p><strong>整合性を保つための単位。</strong>
+関連するエンティティと値オブジェクトをひとまとめにし、
+その境界内のデータ整合性を保証します。</p>
+<h3>集約ルート（Aggregate Root）</h3>
+<p>集約への <strong>唯一の入口</strong> となるエンティティ。
+<strong>外部からは集約ルートを通じてのみ操作できます。</strong></p>
+<pre><code class="hljs language-plaintext">【正しいアクセス方法】
+
+// ✅ 集約ルート（Order）を通じて操作する
+const order = await orderRepository.findById(orderId);
+order.cancel(); // Order.cancel() の中で OrderItem の整合性も管理される
+
+// ❌ 集約の内部（OrderItem）に直接アクセスしない
+const item = order.items[0];
+item.updateQuantity(5); // 集約ルートを経由しないと不変条件が守られない可能性</code></pre><h3>不変条件（Invariant）</h3>
+<p>集約が <strong>常に保証するビジネスルール</strong> のことです。
+不変条件は集約ルートのメソッドの中でチェックします。</p>
+<pre><code class="hljs language-plaintext">Order 集約の不変条件:
+  1. 注文明細が 0 件の注文は存在できない
+  2. SHIPPED 以降はキャンセルできない
+  3. 合計金額 = 各明細の小計の合計（常に一致する）</code></pre><h3>実装：Order 集約の例</h3>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// src/domain/order/Order.ts（抜粋）</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">Order</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_ inherited__">AggregateRoot</span> {
+  <span class="hljs-keyword">private</span> <span class="hljs-title function_">constructor</span>(<span class="hljs-params">
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">_id</span>: <span class="hljs-title class_">OrderId</span>,
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">_customerId</span>: <span class="hljs-title class_">CustomerId</span>,
+    <span class="hljs-keyword">private</span> <span class="hljs-attr">_status</span>: <span class="hljs-title class_">OrderStatus</span>,
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">_items</span>: <span class="hljs-title class_">OrderItem</span>[],  <span class="hljs-comment">// ← 外部から直接操作しない</span>
+    <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">_placedAt</span>: <span class="hljs-title class_">Date</span>
+  </span>) {
+    <span class="hljs-variable language_">super</span>();
+  }
+
+  <span class="hljs-comment">// ─── ファクトリメソッド ───────────────────────────────────────────</span>
+
+  <span class="hljs-keyword">static</span> <span class="hljs-title function_">place</span>(<span class="hljs-attr">customerId</span>: <span class="hljs-title class_">CustomerId</span>, <span class="hljs-attr">items</span>: <span class="hljs-title class_">OrderItem</span>[]): <span class="hljs-title class_">Order</span> {
+    <span class="hljs-comment">// 不変条件①チェック：明細が1件以上必要</span>
+    <span class="hljs-keyword">if</span> (!items || items.<span class="hljs-property">length</span> === <span class="hljs-number">0</span>) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">&#x27;注文には少なくとも1つの注文明細が必要です&#x27;</span>);
+    }
+
+    <span class="hljs-keyword">const</span> order = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Order</span>(
+      <span class="hljs-title class_">OrderId</span>.<span class="hljs-title function_">generate</span>(),
+      customerId,
+      <span class="hljs-title class_">OrderStatus</span>.<span class="hljs-property">PENDING</span>,
+      [...items],   <span class="hljs-comment">// コピーして外部からの変更を防ぐ</span>
+      <span class="hljs-keyword">new</span> <span class="hljs-title class_">Date</span>()
+    );
+
+    <span class="hljs-comment">// ドメインイベントを記録（← 後で詳しく説明）</span>
+    order.<span class="hljs-title function_">addDomainEvent</span>(<span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderPlaced</span>(order.<span class="hljs-property">_id</span>, customerId));
+    <span class="hljs-keyword">return</span> order;
+  }
+
+  <span class="hljs-comment">// ─── ビジネスロジック ──────────────────────────────────────────────</span>
+
+  <span class="hljs-title function_">confirm</span>(): <span class="hljs-built_in">void</span> {
+    <span class="hljs-keyword">if</span> (<span class="hljs-variable language_">this</span>.<span class="hljs-property">_status</span> !== <span class="hljs-title class_">OrderStatus</span>.<span class="hljs-property">PENDING</span>) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`PENDING 状態でないと確定できません: <span class="hljs-subst">${<span class="hljs-variable language_">this</span>._status}</span>`</span>);
+    }
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">_status</span> = <span class="hljs-title class_">OrderStatus</span>.<span class="hljs-property">CONFIRMED</span>;
+    <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">addDomainEvent</span>(<span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderConfirmed</span>(<span class="hljs-variable language_">this</span>.<span class="hljs-property">_id</span>));
+  }
+
+  <span class="hljs-title function_">cancel</span>(): <span class="hljs-built_in">void</span> {
+    <span class="hljs-comment">// 不変条件②チェック：SHIPPED 以降はキャンセル不可</span>
+    <span class="hljs-keyword">if</span> (!<span class="hljs-variable constant_">CANCELLABLE_STATUSES</span>.<span class="hljs-title function_">includes</span>(<span class="hljs-variable language_">this</span>.<span class="hljs-property">_status</span>)) {
+      <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`この注文はキャンセルできません: <span class="hljs-subst">${<span class="hljs-variable language_">this</span>._status}</span>`</span>);
+    }
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">_status</span> = <span class="hljs-title class_">OrderStatus</span>.<span class="hljs-property">CANCELLED</span>;
+    <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">addDomainEvent</span>(<span class="hljs-keyword">new</span> <span class="hljs-title class_">OrderCancelled</span>(<span class="hljs-variable language_">this</span>.<span class="hljs-property">_id</span>));
+  }
+
+  <span class="hljs-comment">// ─── 集計（不変条件③） ──────────────────────────────────────────────</span>
+
+  <span class="hljs-keyword">get</span> <span class="hljs-title function_">totalAmount</span>(): <span class="hljs-title class_">Money</span> {
+    <span class="hljs-comment">// items の集計結果が totalAmount として常に一致する（不変条件③）</span>
+    <span class="hljs-keyword">return</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">_items</span>.<span class="hljs-title function_">reduce</span>(
+      <span class="hljs-function">(<span class="hljs-params">sum, item</span>) =&gt;</span> sum.<span class="hljs-title function_">add</span>(item.<span class="hljs-property">subtotal</span>),
+      <span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(<span class="hljs-number">0</span>, <span class="hljs-string">&#x27;JPY&#x27;</span>)
+    );
+  }
+}</code></pre><h3>集約の設計ルール</h3>
+<p>集約を設計するときに守るべきガイドラインがあります：</p>
+<pre><code class="hljs language-plaintext">ルール1：集約はできるだけ小さく保つ
+   大きな集約はロック競合が増え、パフォーマンスが落ちる。
+   「本当にトランザクション整合性が必要なものだけ」を集約に含める。
+
+ルール2：集約間の参照は ID のみで行う
+   // ✅ 良い例：ID で参照する
+   class Order {
+     customerId: CustomerId; // Customer オブジェクトではなく ID だけ持つ
+   }
+
+   // ❌ 悪い例：オブジェクトで参照する
+   class Order {
+     customer: Customer; // Customer 集約全体を持ってしまう
+   }
+
+ルール3：外部からは集約ルートのみを操作する
+   OrderItem を直接リポジトリで取得・保存してはならない。
+   必ず Order を通じて操作する。
+
+ルール4：1 トランザクション = 1 集約
+   複数集約を1トランザクションで変更したくなったら、
+   ドメインイベントを使って非同期で処理することを検討する。</code></pre><hr>
+<h2>5. ドメインサービス（Domain Service）</h2>
+<h3>定義</h3>
+<p><strong>特定のエンティティ・集約に自然に属さないドメインロジック</strong> を置く場所。</p>
+<h3>いつドメインサービスを使うか</h3>
+<p>「このロジックをどこに置くか」迷ったとき、以下を考えます：</p>
+<pre><code class="hljs language-plaintext">「注文の割引額を計算する」というロジックはどこに置くか？
+
+Order.calculateDiscount() ？
+  → 割引は顧客の VIP 状態に依存する。Order は Customer を参照できない（別集約）
+
+Customer.calculateDiscount(order) ？
+  → Customer が Order の詳細（金額）を知る必要がある。依存が逆転する
+
+→ どちらにも自然に収まらない
+→ OrderDomainService.calculateDiscount(customer, order) に置く！</code></pre><h3>実装：OrderDomainService の例</h3>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// src/domain/order/OrderDomainService.ts</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderDomainService</span> {
+  <span class="hljs-comment">/**
+   * 割引額を計算する
+   *
+   * 特徴：
+   * - ステートレス（状態を持たない）
+   * - ドメインの概念を表現する（ビジネスルールが書かれている）
+   * - インフラ層には依存しない（DB アクセスなし）
+   */</span>
+  <span class="hljs-title function_">calculateDiscount</span>(<span class="hljs-attr">customer</span>: <span class="hljs-title class_">Customer</span>, <span class="hljs-attr">totalAmount</span>: <span class="hljs-title class_">Money</span>): <span class="hljs-title class_">Money</span> {
+    <span class="hljs-keyword">if</span> (customer.<span class="hljs-title function_">isVip</span>()) {
+      <span class="hljs-comment">// VIP 割引：10%</span>
+      <span class="hljs-keyword">return</span> <span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(
+        <span class="hljs-title class_">Math</span>.<span class="hljs-title function_">floor</span>(totalAmount.<span class="hljs-property">amount</span> * <span class="hljs-number">0.1</span>),
+        totalAmount.<span class="hljs-property">currency</span>
+      );
+    }
+    <span class="hljs-comment">// 通常顧客：割引なし</span>
+    <span class="hljs-keyword">return</span> <span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(<span class="hljs-number">0</span>, totalAmount.<span class="hljs-property">currency</span>);
+  }
+}</code></pre><h3>ドメインサービスの特徴</h3>
+<table>
+<thead>
+<tr>
+<th>特徴</th>
+<th>説明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>ステートレス</td>
+<td>インスタンス変数（状態）を持たない</td>
+</tr>
+<tr>
+<td>ドメインロジックのみ</td>
+<td>DB アクセス・HTTP 呼び出しなどは行わない</td>
+</tr>
+<tr>
+<td>名詞ではなく動詞</td>
+<td>クラス名が動詞的（<code>OrderDomainService</code>, <code>PricingCalculator</code>）</td>
+</tr>
+</tbody></table>
+<h3>ドメインサービスと「普通のサービス」の違い</h3>
+<pre><code class="hljs language-plaintext">ドメインサービス（Domain Service）：
+  ・ドメインの概念・ルールを表現する
+  ・ドメイン層に置く
+  ・例：割引計算、与信チェック、在庫引当ロジック
+
+アプリケーションサービス（Application Service / Use Case）：
+  ・ドメインオブジェクトを「指揮」するだけ
+  ・アプリケーション層に置く
+  ・例：PlaceOrderUseCase（DB を読んで Order を作って保存する）</code></pre><hr>
+<h2>6. リポジトリ（Repository）</h2>
+<h3>定義</h3>
+<p><strong>集約の永続化・取得を抽象化するインターフェース。</strong></p>
+<p>リポジトリは「コレクション（配列・Setなど）」のように扱えるインターフェースです。
+利用者は「どこに保存されているか（MySQL/MongoDB/メモリ）」を知る必要がありません。</p>
+<h3>インターフェースと実装の分離</h3>
+<pre><code class="hljs language-plaintext">ドメイン層                           インフラ層
+───────────────────────────────────────────────────────
+OrderRepository（interface）
+  ・findById(id): Promise&lt;Order|null&gt;   ← ここに定義
+  ・save(order): Promise&lt;void&gt;
+                ↑ implements
+                │
+         InMemoryOrderRepository（テスト・開発用）
+         PostgresOrderRepository（本番用）
+         DynamoDBOrderRepository（AWS用）</code></pre><h3>実装例</h3>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// src/domain/order/OrderRepository.ts（ドメイン層：インターフェース）</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">OrderRepository</span> {
+  <span class="hljs-title function_">findById</span>(<span class="hljs-attr">id</span>: <span class="hljs-title class_">OrderId</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">Order</span> | <span class="hljs-literal">null</span>&gt;;
+  <span class="hljs-title function_">findByCustomerId</span>(<span class="hljs-attr">customerId</span>: <span class="hljs-title class_">CustomerId</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">Order</span>[]&gt;;
+  <span class="hljs-title function_">save</span>(<span class="hljs-attr">order</span>: <span class="hljs-title class_">Order</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-built_in">void</span>&gt;;
+}
+
+<span class="hljs-comment">// src/infrastructure/order/InMemoryOrderRepository.ts（インフラ層：実装）</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">InMemoryOrderRepository</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">OrderRepository</span> {
+  <span class="hljs-keyword">private</span> <span class="hljs-keyword">readonly</span> store = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Map</span>&lt;<span class="hljs-built_in">string</span>, <span class="hljs-title class_">Order</span>&gt;();
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">findById</span>(<span class="hljs-attr">id</span>: <span class="hljs-title class_">OrderId</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">Order</span> | <span class="hljs-literal">null</span>&gt; {
+    <span class="hljs-keyword">return</span> <span class="hljs-variable language_">this</span>.<span class="hljs-property">store</span>.<span class="hljs-title function_">get</span>(id.<span class="hljs-property">value</span>) ?? <span class="hljs-literal">null</span>;
+  }
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">findByCustomerId</span>(<span class="hljs-attr">customerId</span>: <span class="hljs-title class_">CustomerId</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-title class_">Order</span>[]&gt; {
+    <span class="hljs-keyword">return</span> [...<span class="hljs-variable language_">this</span>.<span class="hljs-property">store</span>.<span class="hljs-title function_">values</span>()].<span class="hljs-title function_">filter</span>(
+      <span class="hljs-function">(<span class="hljs-params">order</span>) =&gt;</span> order.<span class="hljs-property">customerId</span>.<span class="hljs-title function_">equals</span>(customerId)
+    );
+  }
+
+  <span class="hljs-keyword">async</span> <span class="hljs-title function_">save</span>(<span class="hljs-attr">order</span>: <span class="hljs-title class_">Order</span>): <span class="hljs-title class_">Promise</span>&lt;<span class="hljs-built_in">void</span>&gt; {
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">store</span>.<span class="hljs-title function_">set</span>(order.<span class="hljs-property">id</span>.<span class="hljs-property">value</span>, order);
+  }
+}</code></pre><h3>リポジトリの設計ガイドライン</h3>
+<pre><code class="hljs language-plaintext">1. 集約ルートに対してのみリポジトリを作る
+   ✅ OrderRepository   （集約ルートに対して）
+   ❌ OrderItemRepository（集約の内部要素には不要）
+
+2. コレクション的なインターフェースにする
+   ✅ save(order)      （コレクションへの追加・更新）
+   ✅ findById(id)     （コレクションからの検索）
+   ❌ updateStatus()   （特定フィールドだけ更新するメソッドは避ける）
+
+3. リポジトリはドメインの言語で書く
+   ✅ findByCustomerId(customerId)
+   ❌ executeQuery(&#x27;SELECT * FROM orders WHERE customer_id = ?&#x27;, [id])</code></pre><hr>
+<h2>7. ドメインイベント（Domain Event）</h2>
+<h3>定義</h3>
+<p><strong>ドメイン内で起きた重要な出来事を表すオブジェクト。</strong></p>
+<p>「注文が発注された」「注文がキャンセルされた」といった <strong>過去に起きた事実</strong> を表します。</p>
+<h3>なぜドメインイベントを使うか</h3>
+<p>集約間を <strong>疎結合</strong> に連携させるためです。</p>
+<pre><code class="hljs language-plaintext">【ドメインイベントを使わない場合（密結合）】
+
+class PlaceOrderUseCase {
+  execute(): void {
+    const order = Order.place(...);
+    await orderRepository.save(order);
+
+    // ← ここで直接他の処理を呼ぶ（密結合）
+    await inventoryService.decreaseStock(order);  // 在庫サービスを直接知っている
+    await notificationService.sendEmail(order);    // 通知サービスを直接知っている
+    await shippingService.createShipment(order);   // 配送サービスを直接知っている
+    // → PlaceOrderUseCase が何でも知っている「神ユースケース」になる
+  }
+}
+
+【ドメインイベントを使った場合（疎結合）】
+
+// Order が「発注された」という事実をイベントとして記録
+const order = Order.place(...);
+// order.pullDomainEvents() → [OrderPlaced イベント]
+
+// イベントハンドラが別々に登録されている（疎結合）
+eventBus.on(&#x27;OrderPlaced&#x27;, inventoryHandler.handle);
+eventBus.on(&#x27;OrderPlaced&#x27;, notificationHandler.handle);
+eventBus.on(&#x27;OrderPlaced&#x27;, shippingHandler.handle);
+
+// PlaceOrderUseCase は「注文を保存してイベントを発行」だけに集中できる</code></pre><h3>命名規則</h3>
+<p>ドメインイベントは <strong>過去形</strong> で命名します。</p>
+<pre><code class="hljs language-plaintext">✅ OrderPlaced（注文が発注された）
+✅ OrderConfirmed（注文が確定された）
+✅ OrderCancelled（注文がキャンセルされた）
+✅ PaymentCompleted（決済が完了した）
+
+❌ PlaceOrder（動詞：コマンドと紛らわしい）
+❌ OrderStatusChanged（何が変わったか不明）</code></pre><h3>実装例</h3>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// src/domain/shared/DomainEvent.ts</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">DomainEvent</span> {
+  <span class="hljs-keyword">readonly</span> <span class="hljs-attr">occurredAt</span>: <span class="hljs-title class_">Date</span>;   <span class="hljs-comment">// いつ発生したか（不変）</span>
+  <span class="hljs-keyword">readonly</span> <span class="hljs-attr">eventType</span>: <span class="hljs-built_in">string</span>;  <span class="hljs-comment">// イベントの種別名</span>
+}
+
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">abstract</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">AggregateRoot</span> {
+  <span class="hljs-keyword">private</span> <span class="hljs-attr">_domainEvents</span>: <span class="hljs-title class_">DomainEvent</span>[] = [];
+
+  <span class="hljs-comment">// ドメインイベントを記録する（集約内部からのみ呼ぶ）</span>
+  <span class="hljs-keyword">protected</span> <span class="hljs-title function_">addDomainEvent</span>(<span class="hljs-attr">event</span>: <span class="hljs-title class_">DomainEvent</span>): <span class="hljs-built_in">void</span> {
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">_domainEvents</span>.<span class="hljs-title function_">push</span>(event);
+  }
+
+  <span class="hljs-comment">// イベントを取り出してリセットする（UseCase から呼ぶ）</span>
+  <span class="hljs-title function_">pullDomainEvents</span>(): <span class="hljs-title class_">DomainEvent</span>[] {
+    <span class="hljs-keyword">const</span> events = [...<span class="hljs-variable language_">this</span>.<span class="hljs-property">_domainEvents</span>];
+    <span class="hljs-variable language_">this</span>.<span class="hljs-property">_domainEvents</span> = [];
+    <span class="hljs-keyword">return</span> events;
+  }
+}
+
+<span class="hljs-comment">// src/domain/order/Order.ts（ドメインイベントの定義）</span>
+<span class="hljs-keyword">export</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderPlaced</span> <span class="hljs-keyword">implements</span> <span class="hljs-title class_">DomainEvent</span> {
+  <span class="hljs-keyword">readonly</span> eventType = <span class="hljs-string">&#x27;OrderPlaced&#x27;</span>;
+  <span class="hljs-keyword">readonly</span> occurredAt = <span class="hljs-keyword">new</span> <span class="hljs-title class_">Date</span>();
+  <span class="hljs-title function_">constructor</span>(<span class="hljs-params">
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">orderId</span>: <span class="hljs-title class_">OrderId</span>,
+    <span class="hljs-keyword">public</span> <span class="hljs-keyword">readonly</span> <span class="hljs-attr">customerId</span>: <span class="hljs-title class_">CustomerId</span>
+  </span>) {}
+}</code></pre><pre><code class="hljs language-typescript"><span class="hljs-comment">// UseCase でのイベント取り出し（src/application/order/PlaceOrderUseCase.ts）</span>
+<span class="hljs-keyword">const</span> order = <span class="hljs-title class_">Order</span>.<span class="hljs-title function_">place</span>(customerId, orderItems);
+<span class="hljs-keyword">await</span> orderRepository.<span class="hljs-title function_">save</span>(order);
+
+<span class="hljs-comment">// イベントを取り出して後続処理に渡す</span>
+<span class="hljs-keyword">const</span> events = order.<span class="hljs-title function_">pullDomainEvents</span>();
+<span class="hljs-comment">// events → [OrderPlaced { orderId, customerId, occurredAt }]</span>
+
+<span class="hljs-comment">// イベントバスや非同期キューに流す</span>
+<span class="hljs-keyword">for</span> (<span class="hljs-keyword">const</span> event <span class="hljs-keyword">of</span> events) {
+  <span class="hljs-keyword">await</span> eventBus.<span class="hljs-title function_">publish</span>(event);
+}</code></pre><hr>
+<h2>8. まとめ：構成要素の選び方</h2>
+<pre><code class="hljs language-plaintext">どれを使えばいいか迷ったときのフローチャート
+
+概念を追跡する必要がある？
+  ├─ Yes → エンティティ（Entity）
+  │         複数のエンティティ＋値オブジェクトで整合性を保つ必要がある？
+  │           ├─ Yes → 集約（Aggregate）にまとめる
+  │           └─ No  → 単独のエンティティ
+  │
+  └─ No  → 値オブジェクト（Value Object）
+
+ロジックの置き場所に迷ったら？
+  ├─ 特定の集約に自然に属する → その集約のメソッドに置く
+  ├─ 複数の集約にまたがる    → ドメインサービス（Domain Service）
+  └─ インフラの詳細を知る必要がある → アプリケーション層のユースケース
+
+重要な出来事が起きたとき？
+  └─ ドメインイベント（Domain Event）を発行する</code></pre><table>
+<thead>
+<tr>
+<th>構成要素</th>
+<th>識別方法</th>
+<th>可変性</th>
+<th>主な責務</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>値オブジェクト</td>
+<td>属性（値）で識別</td>
+<td>不変</td>
+<td>概念を型安全に表現、バリデーション</td>
+</tr>
+<tr>
+<td>エンティティ</td>
+<td>ID で識別</td>
+<td>可変</td>
+<td>ライフサイクルを持つビジネス概念</td>
+</tr>
+<tr>
+<td>集約</td>
+<td>集約ルートの ID</td>
+<td>可変</td>
+<td>整合性の境界、不変条件の保証</td>
+</tr>
+<tr>
+<td>ドメインサービス</td>
+<td>—</td>
+<td>ステートレス</td>
+<td>集約に属さないドメインロジック</td>
+</tr>
+<tr>
+<td>リポジトリ</td>
+<td>—</td>
+<td>—</td>
+<td>集約の永続化・取得の抽象化</td>
+</tr>
+<tr>
+<td>ドメインイベント</td>
+<td>—</td>
+<td>不変</td>
+<td>起きた事実の記録と非同期連携</td>
+</tr>
+</tbody></table>
+<p>次のステップ → <a href="./05_clean_architecture.md">クリーンアーキテクチャ</a>
+| 値オブジェクト | 属性値 | 不変 | 属性の意味を表現する |
+| 集約 | 集約ルートの ID | 可変 | 整合性の境界 |
+| ドメインサービス | N/A | ステートレス | どこにも属さないドメインロジック |
+| リポジトリ | N/A | N/A | 集約の永続化を抽象化 |
+| ドメインイベント | N/A | 不変 | 起きた事実を表現 |</p>
+<p>次のステップ → <a href="./05_clean_architecture.md">クリーンアーキテクチャ</a></p>
+
+      </article>
+      <footer>
+        <p>DDD 学習ガイド — TypeScript + クリーンアーキテクチャ</p>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

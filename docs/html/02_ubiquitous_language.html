@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ユビキタス言語（Ubiquitous Language） — DDD 学習ガイド</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="sidebar-header">
+        <h2>DDD 学習ガイド</h2>
+        <p>TypeScript で学ぶ</p>
+      </div>
+      <ul>
+        <li><a href="01_what_is_ddd.html">① DDDとは</a></li>
+        <li class="active"><a href="02_ubiquitous_language.html">② ユビキタス言語</a></li>
+        <li><a href="03_strategic_design.html">③ 戦略的設計</a></li>
+        <li><a href="04_tactical_design.html">④ 戦術的設計</a></li>
+        <li><a href="05_clean_architecture.html">⑤ クリーンアーキテクチャ</a></li>
+      </ul>
+    </nav>
+    <main class="content">
+      <article>
+        <h1>ユビキタス言語（Ubiquitous Language）</h1>
+<h2>1. ユビキタス言語とは</h2>
+<p><strong>ユビキタス言語</strong> とは、開発チームとドメインエキスパート（ビジネス担当者）が
+<strong>同じ意味で使う共通の言葉</strong> のことです。</p>
+<p>「ユビキタス（Ubiquitous）」= ラテン語で「どこにでも存在する」</p>
+<p>つまり、<strong>会話・ドキュメント・コード・テスト・データベース</strong> のすべてで
+同じ言語を使うということです。</p>
+<blockquote>
+<p>Eric Evans：「もしドメインエキスパートがコードを読んだとき、
+自分たちが話した概念がそのままコードに現れていなければ、
+それはユビキタス言語の失敗だ。」</p>
+</blockquote>
+<hr>
+<h2>2. なぜユビキタス言語が重要か</h2>
+<h3>翻訳コストという問題</h3>
+<p>ソフトウェア開発において「翻訳」は常に誤りを生みます。</p>
+<pre><code class="hljs language-plaintext">【悪い例：翻訳が 3 段階ある】
+
+ドメインエキスパート：「顧客が商品をカートに入れて購入確定した」
+           ↓ 翻訳（開発者が解釈）
+設計書：             「ユーザーが商品をバスケットに追加してチェックアウト」
+           ↓ 翻訳（コーディング時に解釈）
+コード：             user.addToBasket(product); basket.checkout();
+           ↓ 翻訳（DB設計時に解釈）
+テーブル：            tbl_user_cart, order_master, cart_detail</code></pre><p>翻訳が重なるたびに、意味がずれる可能性があります。
+仕様変更の連絡が「翻訳ゲーム」のように伝言されていくと、
+最終的に意図とは違うものが実装されます。</p>
+<h3>実際にありがちな混乱</h3>
+<pre><code class="hljs language-plaintext">【混乱の具体例】
+
+ビジネス担当者「VIP 顧客への割引を適用してください」
+
+開発者A：「User クラスの isPremium フラグが true なら discount を計算」
+開発者B：「Member の grade が &#x27;gold&#x27; 以上なら price reduction を適用」
+テスト担当：「顧客タイプが優良の場合、値引きが発生すること」
+DB：      tbl_user.user_rank = &#x27;VIP&#x27;, tbl_discount_master ...
+
+─────────────────────────────────────────────────────
+同じビジネスルールが 4 通りの言葉で表現されている状態。
+バグが起きたとき「どのコードが正しいのか」誰もわからない。</code></pre><h3>ユビキタス言語で統一した場合</h3>
+<pre><code class="hljs language-plaintext">【良い例：すべてで同じ言葉を使う】
+
+ドメインエキスパート：「VIP 顧客（Customer）が注文（Order）を発注（Place）した場合、
+                       割引（Discount）が適用される」
+
+コード：
+  if (customer.isVip()) {
+    const discount = orderDomainService.calculateDiscount(customer, order.totalAmount);
+  }
+
+テスト：
+  「VIP 顧客が注文を発注したとき、割引が計算されること」
+
+DB テーブル：customers（customer_type = &#x27;VIP&#x27;）</code></pre><p>翻訳が不要なため、誤解が生まれる余地がありません。</p>
+<hr>
+<h2>3. ユビキタス言語の作り方</h2>
+<h3>ステップ1：ドメインエキスパートにインタビューする</h3>
+<p>開発者が一人で考えるのではなく、ビジネス担当者との対話から言語を発見します。</p>
+<pre><code class="hljs language-plaintext">【良いインタビューの例】
+
+開発者：「『購入確定』と『注文確定』は同じ意味ですか？」
+担当者：「違います。『購入確定』はお客様がボタンを押す操作で、
+         『注文確定』は私たちが在庫を確認して受け付けることです」
+
+→ 発見した概念：
+  ・発注する（Place an Order）： 顧客がアクションを起こす
+  ・注文を確定する（Confirm an Order）：店舗が受け付けを確定する</code></pre><pre><code class="hljs language-plaintext">【良い質問の例】
+・「〇〇が失敗するのはどんなケースですか？」
+・「〇〇と△△は同じものですか、それとも別ですか？」
+・「このアクションが起きたとき、次に何が起きますか？」
+・「〇〇は変化しますか？どんなときに変化しますか？」</code></pre><h3>ステップ2：用語集（Glossary）を作る</h3>
+<p>発見した言葉を文書化します。曖昧さを排除し、同義語・禁止語も明記します。</p>
+<h3>ステップ3：コードに反映する</h3>
+<p>用語集の言葉をそのままクラス名・メソッド名・変数名に使います。</p>
+<h3>ステップ4：継続的に育てる</h3>
+<p>ビジネスの理解が深まるにつれて、言語も進化します。
+モデルの理解が変わったら、コードも用語集も更新します。</p>
+<hr>
+<h2>4. EC サイトのユビキタス言語辞書</h2>
+<p>このプロジェクトで使う言葉を定義します。</p>
+<hr>
+<h3>👤 顧客（Customer）</h3>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>定義</td>
+<td>EC サイトに登録し、商品を購入できるユーザー</td>
+</tr>
+<tr>
+<td>識別</td>
+<td><strong>顧客 ID（CustomerId）</strong> で一意に識別される</td>
+</tr>
+<tr>
+<td>属性</td>
+<td>氏名、メールアドレス、VIPフラグ</td>
+</tr>
+<tr>
+<td>禁止語</td>
+<td>「ユーザー（User）」「メンバー（Member）」は使わない</td>
+</tr>
+<tr>
+<td>コード</td>
+<td><code>src/domain/customer/Customer.ts</code></td>
+</tr>
+</tbody></table>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// ✅ 正しい表現</span>
+<span class="hljs-keyword">const</span> customer = <span class="hljs-keyword">await</span> customerRepository.<span class="hljs-title function_">findById</span>(customerId);
+
+<span class="hljs-comment">// ❌ 禁止（ビジネス用語と乖離）</span>
+<span class="hljs-keyword">const</span> user = <span class="hljs-keyword">await</span> userRepository.<span class="hljs-title function_">findById</span>(userId);</code></pre><hr>
+<h3>📦 注文（Order）</h3>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>定義</td>
+<td>顧客が商品を購入する意思を示した取引の単位</td>
+</tr>
+<tr>
+<td>識別</td>
+<td><strong>注文 ID（OrderId）</strong> で一意に識別される</td>
+</tr>
+<tr>
+<td>構成</td>
+<td>1 つ以上の <strong>注文明細（OrderItem）</strong> を含む</td>
+</tr>
+<tr>
+<td>禁止語</td>
+<td>「カゴ（Cart/Basket）」「トランザクション（Transaction）」は使わない</td>
+</tr>
+<tr>
+<td>コード</td>
+<td><code>src/domain/order/Order.ts</code></td>
+</tr>
+</tbody></table>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// ✅ 正しい表現</span>
+<span class="hljs-keyword">const</span> order = <span class="hljs-title class_">Order</span>.<span class="hljs-title function_">place</span>(customerId, orderItems);
+
+<span class="hljs-comment">// ❌ 禁止</span>
+<span class="hljs-keyword">const</span> cart = <span class="hljs-keyword">new</span> <span class="hljs-title class_">ShoppingCart</span>();
+cart.<span class="hljs-title function_">checkout</span>();</code></pre><hr>
+<h3>📋 注文明細（OrderItem）</h3>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>定義</td>
+<td>注文の中の個々の商品行</td>
+</tr>
+<tr>
+<td>構成</td>
+<td>商品 ID、商品名、単価（Money）、数量</td>
+</tr>
+<tr>
+<td>ルール</td>
+<td>数量は 1 以上でなければならない</td>
+</tr>
+<tr>
+<td>コード</td>
+<td><code>src/domain/order/OrderItem.ts</code></td>
+</tr>
+</tbody></table>
+<pre><code class="hljs language-typescript"><span class="hljs-keyword">const</span> item = <span class="hljs-title class_">OrderItem</span>.<span class="hljs-title function_">create</span>(
+  <span class="hljs-string">&#x27;prod-001&#x27;</span>,          <span class="hljs-comment">// 商品ID</span>
+  <span class="hljs-string">&#x27;りんご&#x27;</span>,             <span class="hljs-comment">// 商品名</span>
+  <span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(<span class="hljs-number">150</span>, <span class="hljs-string">&#x27;JPY&#x27;</span>), <span class="hljs-comment">// 単価</span>
+  <span class="hljs-number">3</span>                     <span class="hljs-comment">// 数量</span>
+);
+<span class="hljs-comment">// item.subtotal → Money.of(450, &#x27;JPY&#x27;)</span></code></pre><hr>
+<h3>🏷️ 注文ステータス（OrderStatus）</h3>
+<p>注文の現在の状態を表す値オブジェクトです。
+以下の順序で遷移し、逆方向には遷移しません。</p>
+<pre><code class="hljs language-plaintext">PENDING（注文受付）
+   ↓  confirm()
+CONFIRMED（注文確定）
+   ↓  ship()
+SHIPPED（発送済）
+   ↓  deliver()
+DELIVERED（配達完了）
+
+※ PENDING・CONFIRMED のみ cancel() でキャンセルできる
+  （SHIPPED 以降はキャンセル不可）
+
+CANCELLED（キャンセル）  ← PENDING / CONFIRMED のみ遷移可能</code></pre><table>
+<thead>
+<tr>
+<th>ステータス</th>
+<th>日本語</th>
+<th>意味</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>PENDING</code></td>
+<td>注文受付</td>
+<td>顧客が発注した直後。店舗未確認</td>
+</tr>
+<tr>
+<td><code>CONFIRMED</code></td>
+<td>注文確定</td>
+<td>店舗が在庫確認し受け付けた</td>
+</tr>
+<tr>
+<td><code>SHIPPED</code></td>
+<td>発送済</td>
+<td>商品が発送された</td>
+</tr>
+<tr>
+<td><code>DELIVERED</code></td>
+<td>配達完了</td>
+<td>顧客が商品を受け取った</td>
+</tr>
+<tr>
+<td><code>CANCELLED</code></td>
+<td>キャンセル</td>
+<td>注文が取り消された</td>
+</tr>
+</tbody></table>
+<p>コード → <code>src/domain/order/OrderStatus.ts</code></p>
+<hr>
+<h3>💰 金額（Money）</h3>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>定義</td>
+<td>数値と通貨コード（ISO 4217）のペア</td>
+</tr>
+<tr>
+<td>例</td>
+<td><code>Money.of(1500, &#39;JPY&#39;)</code> = 1,500 円</td>
+</tr>
+<tr>
+<td>禁止</td>
+<td>数値単体での金額表現（<code>1500</code>）は禁止。通貨が不明になる</td>
+</tr>
+<tr>
+<td>コード</td>
+<td><code>src/domain/shared/Money.ts</code></td>
+</tr>
+</tbody></table>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// ✅ 正しい表現</span>
+<span class="hljs-keyword">const</span> price = <span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(<span class="hljs-number">1500</span>, <span class="hljs-string">&#x27;JPY&#x27;</span>);
+<span class="hljs-keyword">const</span> total = price.<span class="hljs-title function_">multiply</span>(<span class="hljs-number">3</span>); <span class="hljs-comment">// Money.of(4500, &#x27;JPY&#x27;)</span>
+
+<span class="hljs-comment">// ❌ 禁止（通貨が不明）</span>
+<span class="hljs-keyword">const</span> price = <span class="hljs-number">1500</span>;
+<span class="hljs-keyword">const</span> total = price * <span class="hljs-number">3</span>;
+
+<span class="hljs-comment">// ❌ 禁止（異なる通貨の加算はエラー）</span>
+<span class="hljs-keyword">const</span> jpy = <span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(<span class="hljs-number">1500</span>, <span class="hljs-string">&#x27;JPY&#x27;</span>);
+<span class="hljs-keyword">const</span> usd = <span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(<span class="hljs-number">10</span>, <span class="hljs-string">&#x27;USD&#x27;</span>);
+jpy.<span class="hljs-title function_">add</span>(usd); <span class="hljs-comment">// throw Error: 通貨が異なります</span></code></pre><hr>
+<h3>🛒 発注する（Place an Order）</h3>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>アクター</td>
+<td>顧客（Customer）</td>
+</tr>
+<tr>
+<td>定義</td>
+<td>顧客が注文を確定させるアクション。注文が PENDING 状態で作成される</td>
+</tr>
+<tr>
+<td>禁止語</td>
+<td>「購入する（Purchase）」「チェックアウト（Checkout）」は使わない</td>
+</tr>
+<tr>
+<td>コード</td>
+<td><code>Order.place()</code></td>
+</tr>
+</tbody></table>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// ✅ ユビキタス言語そのままのメソッド名</span>
+<span class="hljs-keyword">const</span> order = <span class="hljs-title class_">Order</span>.<span class="hljs-title function_">place</span>(customer.<span class="hljs-property">id</span>, orderItems);</code></pre><hr>
+<h3>✅ 注文を確定する（Confirm an Order）</h3>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>アクター</td>
+<td>店舗スタッフ（システム）</td>
+</tr>
+<tr>
+<td>定義</td>
+<td>店舗が注文を受け付け、ステータスを CONFIRMED に変更するアクション</td>
+</tr>
+<tr>
+<td>前提条件</td>
+<td>注文が PENDING 状態であること</td>
+</tr>
+</tbody></table>
+<pre><code class="hljs language-typescript">order.<span class="hljs-title function_">confirm</span>();
+<span class="hljs-comment">// OrderStatus: PENDING → CONFIRMED</span>
+<span class="hljs-comment">// OrderConfirmed ドメインイベントが発行される</span></code></pre><hr>
+<h3>❌ 注文をキャンセルする（Cancel an Order）</h3>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>アクター</td>
+<td>顧客または店舗スタッフ</td>
+</tr>
+<tr>
+<td>定義</td>
+<td>注文を取り消すアクション</td>
+</tr>
+<tr>
+<td>制約</td>
+<td>SHIPPED（発送済）以降はキャンセル不可</td>
+</tr>
+</tbody></table>
+<pre><code class="hljs language-typescript">order.<span class="hljs-title function_">cancel</span>();
+<span class="hljs-comment">// OrderStatus: PENDING/CONFIRMED → CANCELLED</span>
+<span class="hljs-comment">// SHIPPED の場合 → throw new Error(&#x27;この注文はキャンセルできません&#x27;)</span></code></pre><hr>
+<h2>5. ユビキタス言語をコードに反映する原則</h2>
+<h3>原則1：クラス名 ＝ ドメインの概念名</h3>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// ❌ 技術的な名前</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderDataTransferObject</span> { ... }
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderEntityBean</span> { ... }
+
+<span class="hljs-comment">// ✅ ドメイン概念の名前</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">Order</span> { ... }
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">OrderItem</span> { ... }</code></pre><h3>原則2：メソッド名 ＝ ドメインのアクション名</h3>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// ❌ 技術的・汎用的なメソッド名</span>
+order.<span class="hljs-title function_">update</span>({ <span class="hljs-attr">status</span>: <span class="hljs-string">&#x27;CANCELLED&#x27;</span> });
+order.<span class="hljs-title function_">setStatus</span>(<span class="hljs-title class_">OrderStatus</span>.<span class="hljs-property">CANCELLED</span>);
+
+<span class="hljs-comment">// ✅ ビジネスの言葉そのまま</span>
+order.<span class="hljs-title function_">cancel</span>();
+order.<span class="hljs-title function_">confirm</span>();
+order.<span class="hljs-title function_">ship</span>();</code></pre><h3>原則3：例外メッセージもユビキタス言語で</h3>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// ❌ 技術的なエラーメッセージ</span>
+<span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">&#x27;Invalid state transition&#x27;</span>);
+
+<span class="hljs-comment">// ✅ ビジネスの言葉</span>
+<span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">&#x27;発送済みの注文はキャンセルできません&#x27;</span>);</code></pre><hr>
+<h2>6. よくある誤解と注意点</h2>
+<h3>誤解1：「ユビキタス言語 = 日本語をそのままコードに書く」</h3>
+<p>日本語・英語どちらでも構いません。重要なのは <strong>ビジネス担当者と開発者の間で意味が一致していること</strong> です。
+英語でコーディングする場合でも、用語集で対応を明確にします。</p>
+<pre><code class="hljs language-plaintext">用語集の例：
+  顧客 → Customer
+  注文 → Order
+  発注する → place (an order)
+  注文を確定する → confirm (an order)</code></pre><h3>誤解2：「一度決めたら変えられない」</h3>
+<p>ユビキタス言語は <strong>生きたドキュメント</strong> です。
+ドメインの理解が深まれば、言語も進化します。
+言語が変わったら <strong>コードもドキュメントも同時に更新</strong> します。</p>
+<h3>誤解3：「すべてのコンテキストで同じ言語を使う」</h3>
+<p>複数のコンテキストにまたがって同じ言語を無理やり統一しようとすると、
+モデルが複雑になります。
+<strong>同じ「顧客」でも、注文コンテキストと配送コンテキストでは異なるモデル</strong> として定義します
+（詳しくは <a href="./03_strategic_design.md">戦略的設計</a> を参照）。</p>
+<h2>5. 言語の発展と更新</h2>
+<p>ユビキタス言語は<strong>一度決めたら終わりではありません。</strong></p>
+<ul>
+<li>ドメインエキスパートとの会話を通じて継続的に洗練される</li>
+<li>新しい概念が生まれたら辞書に追加する</li>
+<li>言葉の意味が変わったら、コードも同時に更新する</li>
+</ul>
+<blockquote>
+<p><strong>コードはドキュメントである。コードを読めばビジネスが理解できる状態が理想。</strong></p>
+</blockquote>
+<hr>
+<h2>6. まとめ</h2>
+<table>
+<thead>
+<tr>
+<th>ポイント</th>
+<th>説明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>共通言語</td>
+<td>チーム全員が同じ意味で使う言葉を定義する</td>
+</tr>
+<tr>
+<td>コードへの反映</td>
+<td>クラス名・メソッド名・変数名に使う</td>
+</tr>
+<tr>
+<td>継続的更新</td>
+<td>知識の深まりとともに言語も進化させる</td>
+</tr>
+<tr>
+<td>翻訳禁止</td>
+<td>ビジネス用語 → 技術用語への翻訳レイヤーを作らない</td>
+</tr>
+</tbody></table>
+<p>次のステップ → <a href="./03_strategic_design.md">戦略的設計</a></p>
+
+      </article>
+      <footer>
+        <p>DDD 学習ガイド — TypeScript + クリーンアーキテクチャ</p>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

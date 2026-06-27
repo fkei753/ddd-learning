@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>戦略的設計（Strategic Design） — DDD 学習ガイド</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="sidebar-header">
+        <h2>DDD 学習ガイド</h2>
+        <p>TypeScript で学ぶ</p>
+      </div>
+      <ul>
+        <li><a href="01_what_is_ddd.html">① DDDとは</a></li>
+        <li><a href="02_ubiquitous_language.html">② ユビキタス言語</a></li>
+        <li class="active"><a href="03_strategic_design.html">③ 戦略的設計</a></li>
+        <li><a href="04_tactical_design.html">④ 戦術的設計</a></li>
+        <li><a href="05_clean_architecture.html">⑤ クリーンアーキテクチャ</a></li>
+      </ul>
+    </nav>
+    <main class="content">
+      <article>
+        <h1>戦略的設計（Strategic Design）</h1>
+<h2>1. 境界づけられたコンテキスト（Bounded Context）</h2>
+<h3>なぜ必要か：「同じ言葉、異なる意味」問題</h3>
+<p>大きなシステムを <strong>1 つのドメインモデル</strong> で表現しようとすると、
+同じ言葉が異なる意味を持つ問題が起きます。</p>
+<pre><code class="hljs language-plaintext">「顧客（Customer）」は誰にとっての顧客か？
+
+営業部門：「顧客 = 商談中の見込み客も含む、氏名・購買履歴・クレジット情報が重要」
+配送部門：「顧客 = 届け先の人、住所・電話番号・時間指定希望が重要」
+経理部門：「顧客 = 請求先、法人名・支払い方法・与信枠が重要」
+サポート：「顧客 = 問い合わせ者、過去の問い合わせ履歴・担当者が重要」</code></pre><p>これを <strong>1 つの <code>Customer</code> クラス</strong> で表現しようとすると：</p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// ❌ すべての部門のニーズを詰め込んだ「神クラス」</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">Customer</span> {
+  <span class="hljs-attr">id</span>: <span class="hljs-built_in">string</span>;
+  <span class="hljs-attr">name</span>: <span class="hljs-built_in">string</span>;
+  <span class="hljs-attr">email</span>: <span class="hljs-built_in">string</span>;
+
+  <span class="hljs-comment">// 営業用</span>
+  <span class="hljs-attr">salesStage</span>: <span class="hljs-string">&#x27;PROSPECT&#x27;</span> | <span class="hljs-string">&#x27;NEGOTIATION&#x27;</span> | <span class="hljs-string">&#x27;CONTRACTED&#x27;</span>;
+  <span class="hljs-attr">creditScore</span>: <span class="hljs-built_in">number</span>;
+  <span class="hljs-attr">purchaseHistory</span>: <span class="hljs-title class_">Purchase</span>[];
+
+  <span class="hljs-comment">// 配送用</span>
+  <span class="hljs-attr">shippingAddress</span>: <span class="hljs-title class_">Address</span>;
+  <span class="hljs-attr">phone</span>: <span class="hljs-built_in">string</span>;
+  <span class="hljs-attr">preferredDeliveryTime</span>: <span class="hljs-built_in">string</span>;
+
+  <span class="hljs-comment">// 経理用</span>
+  <span class="hljs-attr">billingAddress</span>: <span class="hljs-title class_">Address</span>;
+  <span class="hljs-attr">paymentMethod</span>: <span class="hljs-title class_">PaymentMethod</span>;
+  <span class="hljs-attr">creditLimit</span>: <span class="hljs-title class_">Money</span>;
+
+  <span class="hljs-comment">// サポート用</span>
+  <span class="hljs-attr">supportTickets</span>: <span class="hljs-title class_">Ticket</span>[];
+  <span class="hljs-attr">assignedAgent</span>: <span class="hljs-title class_">Agent</span>;
+}</code></pre><p>このクラスは肥大化し、どの部門の変更もすべての部門に影響します。</p>
+<h3>解決策：境界を引いて分割する</h3>
+<p><strong>境界づけられたコンテキスト（Bounded Context）</strong> とは、
+<strong>特定のドメインモデルが有効な範囲（境界）</strong> のことです。
+境界の内側では、ユビキタス言語の言葉が一貫した意味を持ちます。</p>
+<pre><code class="hljs language-plaintext">┌──────────────────────────┐    ┌──────────────────────────┐
+│  注文コンテキスト            │    │  配送コンテキスト            │
+│  (Order Context)          │    │  (Shipping Context)       │
+│                            │    │                            │
+│  Customer                  │    │  Recipient（受取人）        │
+│    id: CustomerId          │    │    name: string            │
+│    name: string            │    │    address: Address        │
+│    email: string           │    │    phone: string           │
+│    isVip: boolean          │    │    preferredTime: string   │
+│                            │    │                            │
+│  Order                     │    │  Shipment（配送）           │
+│  OrderItem                 │    │    orderId: string         │
+│  OrderStatus               │    │    status: ShipmentStatus  │
+└──────────────────────────┘    └──────────────────────────┘
+
+同じ「顧客」でも、各コンテキストで異なるモデルとして定義する</code></pre><p>同じ実世界の「顧客」でも、コンテキストごとに <strong>必要な属性だけを持つモデル</strong> として表現します。
+これにより：</p>
+<ul>
+<li>各コンテキストが独立して変更できる</li>
+<li>モデルがシンプルに保たれる</li>
+<li>チームが独立して開発できる</li>
+</ul>
+<hr>
+<h2>2. コンテキストマップ（Context Map）</h2>
+<p>複数のコンテキストがどのように連携するかを示す全体地図です。
+コンテキスト間でデータを共有したり、イベントで連携したりする関係を可視化します。</p>
+<pre><code class="hljs language-plaintext">EC サイトのコンテキストマップ（概念図）
+
+┌─────────────────┐   注文確定イベント   ┌─────────────────┐
+│  注文コンテキスト │ ─────────────────→ │  配送コンテキスト │
+│  (Order)        │                     │  (Shipping)     │
+└─────────────────┘                     └─────────────────┘
+         │                                       │
+         │ 在庫確認リクエスト                       │ 配送状況通知
+         ↓                                       ↓
+┌─────────────────┐                     ┌─────────────────┐
+│  在庫コンテキスト │                     │  通知コンテキスト │
+│  (Inventory)    │                     │  (Notification) │
+└─────────────────┘                     └─────────────────┘
+         │
+         │ 決済リクエスト
+         ↓
+┌─────────────────┐
+│  決済コンテキスト │  ← 外部サービス（Stripe 等）
+│  (Payment)      │
+└─────────────────┘</code></pre><h3>コンテキスト間の関係パターン</h3>
+<p>Eric Evans はコンテキスト間の関係を以下のパターンで分類しました：</p>
+<h4>パターン1：共有カーネル（Shared Kernel）</h4>
+<p>2 つのコンテキストが一部のモデルを <strong>共有</strong> します。</p>
+<pre><code class="hljs language-plaintext">注文コンテキスト                   配送コンテキスト
+      │                                 │
+      └──── 共有する概念 ────────────────┘
+            ・OrderId（注文IDは同じ）
+            ・Money（金額の表現は共通）</code></pre><p><strong>利点</strong>：重複を避けられる
+<strong>欠点</strong>：一方の変更が他方に影響する。チーム間の調整が必要</p>
+<hr>
+<h4>パターン2：顧客-供給者（Customer-Supplier）</h4>
+<p>一方（供給者）が API を提供し、もう一方（顧客）がそれを利用します。</p>
+<pre><code class="hljs language-plaintext">在庫コンテキスト（供給者）
+      ↓  API: checkStock(productId): boolean
+注文コンテキスト（顧客）</code></pre><p><strong>特徴</strong>：顧客コンテキストは供給者の都合に縛られる。
+供給者が変更すると顧客も影響を受ける。</p>
+<hr>
+<h4>パターン3：腐敗防止層（Anti-Corruption Layer）</h4>
+<p>外部システムやレガシーシステムのモデルを <strong>自分のモデルに変換</strong> する層。
+外部の「汚染（Corruption）」から自分のドメインモデルを守ります。</p>
+<pre><code class="hljs language-plaintext">外部の決済API（Stripe）のレスポンス
+{
+  &quot;charge_id&quot;: &quot;ch_xxx&quot;,
+  &quot;amount_captured&quot;: 1500,
+  &quot;currency&quot;: &quot;jpy&quot;,
+  &quot;payment_status&quot;: &quot;succeeded&quot;
+}
+         ↓  腐敗防止層（ACL）が変換
+自分のドメインモデル
+{
+  paymentId: PaymentId.of(&quot;ch_xxx&quot;),
+  amount: Money.of(1500, &quot;JPY&quot;),
+  status: PaymentStatus.COMPLETED
+}</code></pre><p><strong>なぜ必要か</strong>：外部APIの変更（フィールド名の変更など）が
+自分のドメインモデルに直接影響しないようにするため。</p>
+<pre><code class="hljs language-typescript"><span class="hljs-comment">// 腐敗防止層の実装例</span>
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">StripePaymentAdapter</span> {
+  <span class="hljs-comment">// 外部APIのレスポンスを自分のモデルに変換</span>
+  <span class="hljs-title function_">toPayment</span>(<span class="hljs-attr">stripeCharge</span>: <span class="hljs-title class_">StripeCharge</span>): <span class="hljs-title class_">Payment</span> {
+    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Payment</span>(
+      <span class="hljs-title class_">PaymentId</span>.<span class="hljs-title function_">of</span>(stripeCharge.<span class="hljs-property">charge_id</span>),      <span class="hljs-comment">// フィールド名を変換</span>
+      <span class="hljs-title class_">Money</span>.<span class="hljs-title function_">of</span>(stripeCharge.<span class="hljs-property">amount_captured</span>, stripeCharge.<span class="hljs-property">currency</span>.<span class="hljs-title function_">toUpperCase</span>()),
+      <span class="hljs-variable language_">this</span>.<span class="hljs-title function_">toPaymentStatus</span>(stripeCharge.<span class="hljs-property">payment_status</span>)
+    );
+  }
+
+  <span class="hljs-keyword">private</span> <span class="hljs-title function_">toPaymentStatus</span>(<span class="hljs-attr">stripeStatus</span>: <span class="hljs-built_in">string</span>): <span class="hljs-title class_">PaymentStatus</span> {
+    <span class="hljs-keyword">switch</span> (stripeStatus) {
+      <span class="hljs-keyword">case</span> <span class="hljs-string">&#x27;succeeded&#x27;</span>: <span class="hljs-keyword">return</span> <span class="hljs-title class_">PaymentStatus</span>.<span class="hljs-property">COMPLETED</span>;
+      <span class="hljs-keyword">case</span> <span class="hljs-string">&#x27;pending&#x27;</span>:   <span class="hljs-keyword">return</span> <span class="hljs-title class_">PaymentStatus</span>.<span class="hljs-property">PENDING</span>;
+      <span class="hljs-keyword">case</span> <span class="hljs-string">&#x27;failed&#x27;</span>:    <span class="hljs-keyword">return</span> <span class="hljs-title class_">PaymentStatus</span>.<span class="hljs-property">FAILED</span>;
+      <span class="hljs-attr">default</span>: <span class="hljs-keyword">throw</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">Error</span>(<span class="hljs-string">`未知のStripe決済ステータス: <span class="hljs-subst">${stripeStatus}</span>`</span>);
+    }
+  }
+}</code></pre><hr>
+<h4>パターン4：公開ホストサービス（Open Host Service）</h4>
+<p>コンテキストが他のコンテキストのために <strong>汎用的な API</strong> を公開します。
+REST API や GraphQL がこれに該当します。</p>
+<hr>
+<h2>3. 境界づけられたコンテキストを識別する方法</h2>
+<p>「どこで境界を引くか」は DDD の中でも最も難しい問題の一つです。
+以下の質問がヒントになります：</p>
+<pre><code class="hljs language-plaintext">Q1：同じ言葉が異なる意味を持っていないか？
+   「顧客」が配送部門と経理部門で違う意味 → 境界を引くサイン
+
+Q2：別々のチームが担当している業務か？
+   別チームが担当している場合、独立したコンテキストにしやすい
+
+Q3：変更頻度が大きく異なるか？
+   配送ロジックはほぼ変わらないが、プロモーションルールは毎週変わる
+   → 変更頻度の違いは境界のサイン
+
+Q4：別々のデータソースを使うか？
+   在庫は在庫DBを使い、注文は注文DBを使う → コンテキストを分ける候補
+
+Q5：ビジネス上の責任が明確に分かれているか？
+   「在庫管理は倉庫チームの責任」「注文処理は EC チームの責任」
+   → 責任の分離は境界のヒント</code></pre><hr>
+<h2>4. このプロジェクトのスコープ</h2>
+<p>本サンプルコードでは <strong>注文コンテキスト（Order Context）</strong> に集中して実装します。</p>
+<pre><code class="hljs language-plaintext">注文コンテキストの責務
+
+  ┌─────────────────────────────────────────┐
+  │  注文コンテキスト（Order Context）         │
+  │                                          │
+  │  概念：                                   │
+  │  ・顧客（Customer）                       │
+  │  ・注文（Order）                           │
+  │  ・注文明細（OrderItem）                   │
+  │  ・金額（Money）                           │
+  │                                          │
+  │  アクション：                              │
+  │  ・注文を発注する（PlaceOrder）             │
+  │  ・注文を確定する（ConfirmOrder）           │
+  │  ・注文をキャンセルする（CancelOrder）      │
+  │                                          │
+  │  スコープ外（今回は実装しない）：            │
+  │  ・在庫確認・決済・配送・通知               │
+  └─────────────────────────────────────────┘</code></pre><p>実際の業務システムでは、このコンテキストが複数集まって
+全体のシステムを構成します。</p>
+<hr>
+<h2>5. まとめ：戦略的設計のチェックリスト</h2>
+<p>設計を始める前に、以下を確認します：</p>
+<pre><code class="hljs language-plaintext">□ ドメインエキスパートは誰か？
+□ コアドメインはどこか？（最も注力すべき部分）
+□ サブドメインをどこで分割するか？
+□ 各コンテキストのユビキタス言語は定義されているか？
+□ コンテキスト間の関係パターンは何か？（共有カーネル/顧客-供給者/ACL）
+□ 腐敗防止層が必要な外部システムはどれか？</code></pre><table>
+<thead>
+<tr>
+<th>概念</th>
+<th>目的</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>境界づけられたコンテキスト</td>
+<td>モデルが有効な範囲を明確にし、複雑さを制御する</td>
+</tr>
+<tr>
+<td>コンテキストマップ</td>
+<td>コンテキスト間の関係と依存方向を可視化する</td>
+</tr>
+<tr>
+<td>ユビキタス言語</td>
+<td>各コンテキスト内で一貫した言語を定義する</td>
+</tr>
+<tr>
+<td>腐敗防止層</td>
+<td>外部システムの変化からドメインモデルを保護する</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p><strong>「大きな問題は分割せよ。各コンテキストは独立して理解できる単位にすべき。」</strong></p>
+</blockquote>
+<p>次のステップ → <a href="./04_tactical_design.md">戦術的設計</a></p>
+
+      </article>
+      <footer>
+        <p>DDD 学習ガイド — TypeScript + クリーンアーキテクチャ</p>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>
